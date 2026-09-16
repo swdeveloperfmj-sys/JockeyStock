@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import User from './models/User.js';
 import Location from './models/Location.js';
 import Role from './models/Role.js';
+import Product from './models/Product.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -85,6 +86,75 @@ function managementRoutes(path, Model) {
   app.delete(`/api/${path}/:id`, async (req, res) => { const item = await Model.findByIdAndDelete(req.params.id); if (!item) return res.status(404).json({ message: 'Item not found.' }); res.status(204).end(); });
 }
 managementRoutes('roles', Role);
+
+const productFields = ['productCode', 'productName', 'gender', 'categoryCode', 'subCategoryCode', 'subSubCategory', 'supplierCode', 'costPrice', 'orderPrice', 'averageCost', 'sellingPrice', 'wholesalePrice', 'minimumPrice'];
+const parseProductName = (value = '') => {
+  const productName = String(value).trim().toUpperCase();
+  const match = productName.match(/^([A-Z0-9]+)-(\d{2})(\d{2})-([A-Z0-9]+)-([A-Z0-9]+)$/);
+  if (!match) return null;
+  return {
+    productName,
+    referenceCode1: productName,
+    style: match[1],
+    packingQuantity: match[2],
+    cartonQuantity: match[3],
+    color: match[4],
+    size: match[5]
+  };
+};
+app.get('/api/products', async (_req, res) => res.json(await Product.find().sort({ createdAt: -1 })));
+app.post('/api/products', async (req, res) => {
+  const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));
+  if (!/^\d{13}$/.test(data.productCode || '')) return res.status(400).json({ message: 'Product Code must contain exactly 13 numbers.' });
+  const productDetails = parseProductName(data.productName);
+  if (!productDetails) return res.status(400).json({ message: 'Product Name must use the format FP03-0205-ASSTD-XL.' });
+  Object.assign(data, productDetails);
+  const required = productFields.filter((field) => field !== 'subSubCategory');
+  if (required.some((field) => data[field] === undefined || data[field] === '')) return res.status(400).json({ message: 'Please complete all required product fields.' });
+  Object.assign(data, { sku: data.productCode, name: data.productName, category: data.categoryCode });
+  try { res.status(201).json(await Product.create(data)); }
+  catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Product Code already exists.' : error.message }); }
+});
+app.patch('/api/products/:id', async (req, res) => {
+  const data = Object.fromEntries(productFields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+  if (data.productCode && !/^\d{13}$/.test(data.productCode)) return res.status(400).json({ message: 'Product Code must contain exactly 13 numbers.' });
+  if (data.productName !== undefined) {
+    const productDetails = parseProductName(data.productName);
+    if (!productDetails) return res.status(400).json({ message: 'Product Name must use the format FP03-0205-ASSTD-XL.' });
+    Object.assign(data, productDetails);
+  }
+  if (data.productCode) data.sku = data.productCode;
+  if (data.productName) data.name = data.productName;
+  if (data.categoryCode) data.category = data.categoryCode;
+  try { const product = await Product.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true }); if (!product) return res.status(404).json({ message: 'Product not found.' }); res.json(product); }
+  catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Product Code already exists.' : error.message }); }
+});
+app.delete('/api/products/:id', async (req, res) => { const product = await Product.findByIdAndDelete(req.params.id); if (!product) return res.status(404).json({ message: 'Product not found.' }); res.status(204).end(); });
+
+app.get('/api/dashboard/summary', async (_req, res) => {
+  try {
+    const [inventory, lowStockProducts, salesReps, locations, roles, recentProducts] = await Promise.all([
+      Product.aggregate([{ $group: { _id: null, totalProducts: { $sum: 1 }, totalStock: { $sum: '$openingStock' } } }]),
+      Product.countDocuments({ openingStock: { $lte: 10 } }),
+      User.countDocuments({ role: { $ne: 'SUPER_ADMIN' } }),
+      Location.countDocuments(),
+      Role.countDocuments(),
+      Product.find().sort({ updatedAt: -1 }).limit(5).select('productCode productName categoryCode openingStock unit sku name category updatedAt')
+    ]);
+    const totals = inventory[0] || { totalProducts: 0, totalStock: 0 };
+    res.json({
+      totalProducts: totals.totalProducts,
+      totalStock: totals.totalStock,
+      lowStockProducts,
+      salesReps,
+      locations,
+      roles,
+      recentProducts
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Unable to load dashboard summary.' });
+  }
+});
 
 app.get('/api/locations', async (_req, res) => res.json(await Location.find().sort({ name: 1 })));
 app.post('/api/locations', async (req, res) => {
