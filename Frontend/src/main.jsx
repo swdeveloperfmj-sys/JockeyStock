@@ -5,7 +5,7 @@ import { divIcon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { FiBarChart2, FiBox, FiEdit2, FiFileText, FiLogOut, FiMenu, FiMoon, FiPlusCircle, FiSun, FiTrash2, FiUserPlus, FiUsers, FiX } from 'react-icons/fi';
 import './style.css';
-const API_URL='http://localhost:5000/api';
+const API_URL=import.meta.env.VITE_API_URL||'http://localhost:5000/api';
 const locationPin=divIcon({className:'jockey-map-pin',html:'<span>📍</span>',iconSize:[36,44],iconAnchor:[18,42],popupAnchor:[0,-40]});
 function CircleMarker({center,children}){return <Marker position={center} icon={locationPin}>{children}</Marker>}
 function MapContainer(props){return <LeafletMapContainer {...props} scrollWheelZoom/>}
