@@ -10,7 +10,7 @@ const productSchema = new mongoose.Schema({
   cartonQuantity: { type: String, required: true, trim: true, match: [/^\d{2}$/, 'Carton Quantity must contain 2 numbers.'] },
   color: { type: String, required: true, trim: true, uppercase: true },
   size: { type: String, required: true, trim: true, uppercase: true },
-  gender: { type: String, required: true, enum: ['MEN', 'WOMEN', 'BOYS', 'GIRLS', 'UNISEX'] },
+  gender: { type: String, required: true, uppercase: true, enum: ['MENS', 'WOMENS', 'BOYS', 'GIRLS', 'UNISEX'] },
   categoryCode: { type: String, required: true, trim: true },
   subCategoryCode: { type: String, required: true, trim: true },
   subSubCategory: { type: String, trim: true, default: '' },

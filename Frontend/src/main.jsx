@@ -12,6 +12,7 @@ import "leaflet/dist/leaflet.css";
 import {
   FiBarChart2,
   FiBox,
+  FiDownload,
   FiEdit2,
   FiFileText,
   FiLogOut,
@@ -20,6 +21,7 @@ import {
   FiPlusCircle,
   FiSun,
   FiTrash2,
+  FiUploadCloud,
   FiUserPlus,
   FiUsers,
   FiX,
@@ -881,6 +883,13 @@ const parseProductNameDetails = (value = "") => {
     size: match[5],
   };
 };
+const allowedProductGenders = ["MENS", "WOMENS", "BOYS", "GIRLS", "UNISEX"];
+const normalizeProductGender = (value = "") => {
+  const gender = String(value).trim().toUpperCase();
+  if (gender === "MEN") return "MENS";
+  if (gender === "WOMEN") return "WOMENS";
+  return gender;
+};
 const createEmptyProduct = () => ({
   productCode: "",
   referenceCode1: "",
@@ -906,6 +915,41 @@ const productPriceFields = [
   "wholesalePrice",
   "minimumPrice",
 ];
+const productImportColumns = [
+  { header: "Product Code", key: "productCode", width: 19 },
+  { header: "Product Name", key: "productName", width: 27 },
+  { header: "Gender", key: "gender", width: 14 },
+  { header: "Category Code", key: "categoryCode", width: 18 },
+  { header: "Sub Category Code", key: "subCategoryCode", width: 21 },
+  {
+    header: "Sub Sub Category",
+    key: "subSubCategory",
+    width: 21,
+    optional: true,
+  },
+  { header: "Supplier Code", key: "supplierCode", width: 17 },
+  { header: "Cost Price", key: "costPrice", width: 15 },
+  { header: "Order Price", key: "orderPrice", width: 15 },
+  { header: "Average Cost", key: "averageCost", width: 16 },
+  { header: "Selling Price", key: "sellingPrice", width: 16 },
+  { header: "Wholesale Price", key: "wholesalePrice", width: 18 },
+  { header: "Minimum Price", key: "minimumPrice", width: 16 },
+];
+const normalizeSheetHeader = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+const getSpreadsheetCellValue = (cell) => {
+  let value = cell?.value;
+  if (value && typeof value === "object") {
+    if ("result" in value) value = value.result;
+    else if (Array.isArray(value.richText)) {
+      value = value.richText.map((part) => part.text).join("");
+    } else value = cell.text;
+  }
+  return value == null ? "" : String(value).trim();
+};
 function ProductMaster({ open }) {
   const [products, setProducts] = useState([]),
     [formOpen, setFormOpen] = useState(false),
@@ -914,7 +958,10 @@ function ProductMaster({ open }) {
     [deleteTargets, setDeleteTargets] = useState([]),
     [form, setForm] = useState(createEmptyProduct),
     [error, setError] = useState(""),
-    [saving, setSaving] = useState(false);
+    [saving, setSaving] = useState(false),
+    [importing, setImporting] = useState(false),
+    [importReport, setImportReport] = useState(null),
+    [pendingImport, setPendingImport] = useState(null);
   const load = async () => {
     try {
       const r = await fetch(`${API_URL}/products`),
@@ -974,7 +1021,7 @@ function ProductMaster({ open }) {
       cartonQuantity: product.cartonQuantity || parsedDetails.cartonQuantity,
       color: product.color || parsedDetails.color,
       size: product.size || parsedDetails.size,
-      gender: product.gender || "",
+      gender: normalizeProductGender(product.gender),
       categoryCode: product.categoryCode || product.category || "",
       subCategoryCode: product.subCategoryCode || "",
       subSubCategory: product.subSubCategory || "",
@@ -1003,6 +1050,268 @@ function ProductMaster({ open }) {
     setSelected((current) =>
       current.length === products.length ? [] : products.map((p) => p._id),
     );
+  const downloadProductTemplate = async () => {
+    const { default: ExcelJS } = await import("exceljs");
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Jockey Stock";
+    workbook.created = new Date();
+    const sheet = workbook.addWorksheet("Products", {
+      views: [{ state: "frozen", ySplit: 1 }],
+    });
+    sheet.columns = productImportColumns.map(({ header, key, width }) => ({
+      header,
+      key,
+      width,
+    }));
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: productImportColumns.length },
+    };
+    sheet.getRow(1).height = 28;
+    sheet.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFEA5A35" },
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+    sheet.getColumn("productCode").numFmt = "@";
+    sheet.getColumn("productName").numFmt = "@";
+    for (let row = 2; row <= 2001; row += 1) {
+      sheet.getCell(`C${row}`).dataValidation = {
+        type: "list",
+        allowBlank: false,
+        formulae: ['"MENS,WOMENS,BOYS,GIRLS,UNISEX"'],
+      };
+    }
+
+    const instructions = workbook.addWorksheet("Instructions");
+    instructions.columns = [
+      { header: "Field", key: "field", width: 25 },
+      { header: "Requirement", key: "requirement", width: 58 },
+      { header: "Example", key: "example", width: 28 },
+    ];
+    instructions.addRows([
+      {
+        field: "Product Code",
+        requirement: "Required. Exactly 13 digits. Keep the cell as text.",
+        example: "1234567890123",
+      },
+      {
+        field: "Product Name",
+        requirement:
+          "Required. STYLE + 2-digit packing + 2-digit carton + COLOR + SIZE.",
+        example: "FP03-0205-ASSTD-XL",
+      },
+      {
+        field: "Gender",
+        requirement:
+          "Required. Select MENS, WOMENS, BOYS, GIRLS, or UNISEX. Letter case is normalized automatically.",
+        example: "MENS",
+      },
+      {
+        field: "Sub Sub Category",
+        requirement: "Optional. This cell may be left blank.",
+        example: "",
+      },
+      {
+        field: "Supplier Code",
+        requirement: "Required. Use JOCKEY when no other supplier applies.",
+        example: "JOCKEY",
+      },
+      {
+        field: "Price columns",
+        requirement: "Required. Enter a positive number or zero.",
+        example: "1250.00",
+      },
+    ]);
+    instructions.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF172030" },
+      };
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const url = URL.createObjectURL(
+      new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "jockey-product-import-template.xlsx";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const importProductSheet = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setImporting(true);
+    setImportReport(null);
+    setError("");
+    try {
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error("The XLSX file must be smaller than 10 MB.");
+      }
+      const { default: ExcelJS } = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(await file.arrayBuffer());
+      const sheet = workbook.getWorksheet("Products") || workbook.worksheets[0];
+      if (!sheet) throw new Error("No worksheet was found in this file.");
+
+      const headerIndexes = new Map();
+      sheet.getRow(1).eachCell((cell, columnNumber) => {
+        headerIndexes.set(normalizeSheetHeader(cell.text), columnNumber);
+      });
+      const missingHeaders = productImportColumns.filter(
+        ({ header, optional }) =>
+          !optional && !headerIndexes.has(normalizeSheetHeader(header)),
+      );
+      if (missingHeaders.length) {
+        throw new Error(
+          `Missing columns: ${missingHeaders.map(({ header }) => header).join(", ")}.`,
+        );
+      }
+
+      const importedRows = [];
+      for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+        const row = sheet.getRow(rowNumber);
+        const values = Object.fromEntries(
+          productImportColumns.map(({ header, key }) => {
+            const columnNumber = headerIndexes.get(
+              normalizeSheetHeader(header),
+            );
+            return [
+              key,
+              columnNumber
+                ? getSpreadsheetCellValue(row.getCell(columnNumber))
+                : "",
+            ];
+          }),
+        );
+        if (!Object.values(values).some(Boolean)) continue;
+        importedRows.push({ ...values, rowNumber });
+      }
+      if (!importedRows.length) {
+        throw new Error(
+          "The Products worksheet does not contain any data rows.",
+        );
+      }
+      if (importedRows.length > 2000) {
+        throw new Error("A maximum of 2,000 products can be imported at once.");
+      }
+      const existingCodes = new Set(
+        products.map((product) => product.productCode || product.sku),
+      );
+      const seenCodes = new Set();
+      const previewRows = importedRows.map((row) => {
+        const issues = [];
+        const productCode = String(row.productCode || "").trim();
+        const details = parseProductNameDetails(row.productName);
+        if (!/^\d{13}$/.test(productCode)) {
+          issues.push("Product Code must contain exactly 13 numbers.");
+        }
+        if (seenCodes.has(productCode)) {
+          issues.push("Duplicate Product Code in this sheet.");
+        } else if (productCode) {
+          seenCodes.add(productCode);
+        }
+        if (existingCodes.has(productCode)) {
+          issues.push("Product Code already exists.");
+        }
+        if (!details) {
+          issues.push("Invalid Product Name format.");
+        }
+        if (
+          !allowedProductGenders.includes(normalizeProductGender(row.gender))
+        ) {
+          issues.push("Invalid Gender.");
+        }
+        if (
+          ["categoryCode", "subCategoryCode", "supplierCode"].some(
+            (field) => !String(row[field] || "").trim(),
+          )
+        ) {
+          issues.push("A required classification field is empty.");
+        }
+        if (
+          productPriceFields.some(
+            (field) =>
+              String(row[field] ?? "").trim() === "" ||
+              !Number.isFinite(Number(row[field])) ||
+              Number(row[field]) < 0,
+          )
+        ) {
+          issues.push("One or more prices are invalid.");
+        }
+        return {
+          ...row,
+          productName: String(row.productName || "").toUpperCase(),
+          gender: normalizeProductGender(row.gender),
+          details: details || emptyProductBreakdown(),
+          issues,
+        };
+      });
+      setPendingImport({ fileName: file.name, rows: previewRows });
+    } catch (importError) {
+      setImportReport({
+        type: "error",
+        message: importError.message,
+        errors: [],
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+  const confirmSpreadsheetImport = async () => {
+    if (!pendingImport) return;
+    setImporting(true);
+    setImportReport(null);
+    try {
+      const productsToImport = pendingImport.rows.map((row) =>
+        Object.fromEntries([
+          ...productImportColumns.map(({ key }) => [key, row[key]]),
+          ["rowNumber", row.rowNumber],
+        ]),
+      );
+      const response = await fetch(`${API_URL}/products/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products: productsToImport }),
+      });
+      const result = await response.json();
+      if (!response.ok && !result.errors) {
+        throw new Error(
+          result.message || "The spreadsheet could not be imported.",
+        );
+      }
+      if (result.inserted) await load();
+      setPendingImport(null);
+      setImportReport({
+        type: result.failed
+          ? result.inserted
+            ? "warning"
+            : "error"
+          : "success",
+        message: `${result.inserted || 0} products imported. ${result.failed || 0} rows skipped.`,
+        errors: result.errors || [],
+      });
+    } catch (importError) {
+      setImportReport({
+        type: "error",
+        message: importError.message,
+        errors: [],
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
   async function confirmDelete() {
     setSaving(true);
     setError("");
@@ -1076,10 +1385,205 @@ function ProductMaster({ open }) {
           <h1>FMJ New Plant Inventory</h1>
           <p>All products added here belong to FMJ New Plant.</p>
         </div>
-        <button className="add-product-button" onClick={openAdd}>
-          <FiPlusCircle /> Add Product
-        </button>
+        <div className="product-header-buttons">
+          <button
+            type="button"
+            className="template-button"
+            onClick={downloadProductTemplate}
+          >
+            <FiDownload /> XLSX Template
+          </button>
+          <label className={`xlsx-upload-button${importing ? " is-busy" : ""}`}>
+            <FiUploadCloud />
+            <span>{importing ? "Importing..." : "Upload XLSX"}</span>
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={importProductSheet}
+              disabled={importing}
+            />
+          </label>
+          <button className="add-product-button" onClick={openAdd}>
+            <FiPlusCircle /> Add Product
+          </button>
+        </div>
       </div>
+      {importReport && (
+        <div
+          className={`import-report ${importReport.type}`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="import-report-heading">
+            <div>
+              <strong>Spreadsheet import</strong>
+              <p>{importReport.message}</p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close import report"
+              onClick={() => setImportReport(null)}
+            >
+              <FiX />
+            </button>
+          </div>
+          {importReport.errors.length > 0 && (
+            <ul>
+              {importReport.errors.slice(0, 8).map((item, index) => (
+                <li key={`${item.row}-${item.productCode}-${index}`}>
+                  <b>Row {item.row}</b>
+                  <span>{item.productCode || "No product code"}</span>
+                  <small>{item.message}</small>
+                </li>
+              ))}
+            </ul>
+          )}
+          {importReport.errors.length > 8 && (
+            <p className="remaining-import-errors">
+              +{importReport.errors.length - 8} more skipped rows
+            </p>
+          )}
+        </div>
+      )}
+      {pendingImport && (
+        <div className="modal-backdrop xlsx-preview-backdrop">
+          <section
+            className="xlsx-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="xlsx-preview-title"
+          >
+            <div className="xlsx-preview-header">
+              <div>
+                <p className="eyebrow">REVIEW BEFORE IMPORT</p>
+                <h2 id="xlsx-preview-title">Product import preview</h2>
+                <p>
+                  {pendingImport.fileName} · {pendingImport.rows.length} rows
+                </p>
+              </div>
+              <button
+                type="button"
+                className="close-modal"
+                aria-label="Close preview"
+                disabled={importing}
+                onClick={() => setPendingImport(null)}
+              >
+                <FiX />
+              </button>
+            </div>
+            <div className="xlsx-preview-summary">
+              <div className="valid">
+                <span>Ready to import</span>
+                <strong>
+                  {
+                    pendingImport.rows.filter((row) => !row.issues.length)
+                      .length
+                  }
+                </strong>
+              </div>
+              <div className="invalid">
+                <span>Needs attention</span>
+                <strong>
+                  {pendingImport.rows.filter((row) => row.issues.length).length}
+                </strong>
+              </div>
+              <p>
+                Rows marked “Needs attention” will be checked again and skipped
+                by the server.
+              </p>
+            </div>
+            <div className="xlsx-preview-table-wrap">
+              <table className="xlsx-preview-table">
+                <thead>
+                  <tr>
+                    <th>Row</th>
+                    <th>Status</th>
+                    <th>Product Code</th>
+                    <th>Product Name</th>
+                    <th>Style</th>
+                    <th>Pack Qty</th>
+                    <th>Carton Qty</th>
+                    <th>Color</th>
+                    <th>Size</th>
+                    <th>Gender</th>
+                    <th>Category</th>
+                    <th>Sub Category</th>
+                    <th>Supplier</th>
+                    <th className="price-column">Cost Price</th>
+                    <th className="price-column">Order Price</th>
+                    <th className="price-column">Average Cost</th>
+                    <th className="price-column">Selling Price</th>
+                    <th className="price-column">Wholesale Price</th>
+                    <th className="price-column">Minimum Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingImport.rows.map((row) => (
+                    <tr
+                      key={`${row.rowNumber}-${row.productCode}`}
+                      className={
+                        row.issues.length ? "invalid-row" : "valid-row"
+                      }
+                    >
+                      <td>{row.rowNumber}</td>
+                      <td>
+                        <span
+                          className={`preview-status ${row.issues.length ? "invalid" : "valid"}`}
+                          title={row.issues.join(" ")}
+                        >
+                          {row.issues.length ? "Needs attention" : "Ready"}
+                        </span>
+                        {row.issues.length > 0 && (
+                          <small className="preview-row-error">
+                            {row.issues.join(" · ")}
+                          </small>
+                        )}
+                      </td>
+                      <td>{row.productCode || "—"}</td>
+                      <td>{row.productName || "—"}</td>
+                      <td>{row.details.style || "—"}</td>
+                      <td>{row.details.packingQuantity || "—"}</td>
+                      <td>{row.details.cartonQuantity || "—"}</td>
+                      <td>{row.details.color || "—"}</td>
+                      <td>{row.details.size || "—"}</td>
+                      <td>{row.gender || "—"}</td>
+                      <td>{row.categoryCode || "—"}</td>
+                      <td>{row.subCategoryCode || "—"}</td>
+                      <td>{row.supplierCode || "—"}</td>
+                      {productPriceFields.map((field) => (
+                        <td className="price-column" key={field}>
+                          {row[field] || row[field] === 0 ? row[field] : "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="xlsx-preview-actions">
+              <button
+                type="button"
+                className="cancel-button"
+                disabled={importing}
+                onClick={() => setPendingImport(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-button"
+                disabled={
+                  importing ||
+                  pendingImport.rows.every((row) => row.issues.length)
+                }
+                onClick={confirmSpreadsheetImport}
+              >
+                {importing ? "Importing..." : "Confirm Import"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       <section className="product-list-card">
         <div className="product-list-title">
           <h2>Products</h2>
@@ -1168,7 +1672,9 @@ function ProductMaster({ open }) {
                     </td>
                     <td data-label="Color">{p.color || "—"}</td>
                     <td data-label="Size">{p.size || "—"}</td>
-                    <td data-label="Gender">{p.gender || "—"}</td>
+                    <td data-label="Gender">
+                      {normalizeProductGender(p.gender) || "—"}
+                    </td>
                     <td data-label="Category Code">
                       {p.categoryCode || p.category || "—"}
                     </td>
@@ -1350,11 +1856,11 @@ function ProductMaster({ open }) {
                   required
                 >
                   <option value="">Select Gender</option>
-                  <option value="MEN">Mens</option>
-                  <option value="WOMEN">Womens</option>
-                  <option value="BOYS">Boys</option>
-                  <option value="GIRLS">Girls</option>
-                  <option value="UNISEX">Unisex</option>
+                  <option value="MENS">MENS</option>
+                  <option value="WOMENS">WOMENS</option>
+                  <option value="BOYS">BOYS</option>
+                  <option value="GIRLS">GIRLS</option>
+                  <option value="UNISEX">UNISEX</option>
                 </select>
               </label>
               <label>

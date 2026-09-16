@@ -482,3 +482,506 @@ input,select{min-height:48px;border-radius:7px!important}label{letter-spacing:.1
     text-align: left;
   }
 }
+
+/* XLSX product import controls and validation report. */
+.product-header-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.product-header-buttons button,
+.xlsx-upload-button {
+  width: auto;
+  min-height: 43px;
+  margin: 0;
+  padding: 11px 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 9px !important;
+  white-space: nowrap;
+  font: 700 .78rem 'DM Sans', sans-serif;
+}
+
+.product-header-buttons .template-button {
+  color: var(--ink);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 92%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.product-header-buttons .template-button:hover {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 60%, var(--border));
+}
+
+.xlsx-upload-button {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: linear-gradient(135deg, #148eaa, #08718d);
+  box-shadow: 0 8px 20px rgba(8, 113, 141, .2);
+  transition: transform .16s ease, box-shadow .16s ease, opacity .16s ease;
+}
+
+.xlsx-upload-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 11px 24px rgba(8, 113, 141, .3);
+}
+
+.xlsx-upload-button.is-busy {
+  pointer-events: none;
+  opacity: .65;
+}
+
+.xlsx-upload-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.import-report {
+  margin: -5px 0 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .06);
+  animation: rise-in .25s ease both;
+}
+
+.import-report.success {
+  border-left-color: #25a56a;
+}
+
+.import-report.warning {
+  border-left-color: #e6a23c;
+}
+
+.import-report.error {
+  border-left-color: #e55062;
+}
+
+.import-report-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.import-report-heading strong,
+.import-report-heading p {
+  display: block;
+}
+
+.import-report-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.import-report-heading button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.import-report ul {
+  max-height: 190px;
+  overflow-y: auto;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.import-report li {
+  display: grid;
+  grid-template-columns: 74px minmax(120px, .55fr) minmax(220px, 1fr);
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: .75rem;
+}
+
+.import-report li span {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.import-report li small {
+  color: var(--muted);
+}
+
+.remaining-import-errors {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .inventory-top {
+    flex-direction: column;
+  }
+
+  .product-header-buttons {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 600px) {
+  .product-header-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .product-header-buttons button,
+  .xlsx-upload-button {
+    width: 100%;
+  }
+
+  .product-header-buttons .add-product-button {
+    grid-column: 1 / -1;
+  }
+
+  .import-report {
+    margin-top: 0;
+    padding: 14px;
+  }
+
+  .import-report li {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .import-report li small {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Spreadsheet preview shown before any product data is saved. */
+.xlsx-preview-backdrop {
+  padding: 18px;
+}
+
+.xlsx-preview-modal {
+  width: min(1500px, calc(100vw - 36px));
+  height: min(860px, calc(100dvh - 36px));
+  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .42);
+  animation: modal-in .22s ease both;
+}
+
+.xlsx-preview-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 23px 26px 18px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 10% -80%, rgba(255, 107, 53, .2), transparent 48%),
+    var(--surface);
+}
+
+.xlsx-preview-header .eyebrow {
+  margin-bottom: 6px;
+}
+
+.xlsx-preview-header h2 {
+  margin: 0;
+  font-size: clamp(1.45rem, 2vw, 1.9rem);
+}
+
+.xlsx-preview-header p:last-child {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
+.xlsx-preview-summary {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 26px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 72%, var(--cream));
+}
+
+.xlsx-preview-summary > div {
+  min-width: 145px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.xlsx-preview-summary span {
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+.xlsx-preview-summary .valid strong {
+  color: #25a56a;
+}
+
+.xlsx-preview-summary .invalid strong {
+  color: #e55062;
+}
+
+.xlsx-preview-summary > p {
+  margin: 0 0 0 auto;
+  color: var(--muted);
+  font-size: .74rem;
+}
+
+.xlsx-preview-table-wrap {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 107, 53, .5) transparent;
+}
+
+.xlsx-preview-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.xlsx-preview-table th,
+.xlsx-preview-table td {
+  min-width: 112px;
+  max-width: 240px;
+  padding: 11px 13px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  color: var(--ink);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .74rem;
+}
+
+.xlsx-preview-table th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  min-width: 120px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 82%, var(--cream));
+}
+
+.xlsx-preview-table th:first-child,
+.xlsx-preview-table td:first-child {
+  min-width: 62px;
+  width: 62px;
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--surface);
+}
+
+.xlsx-preview-table th:first-child {
+  z-index: 6;
+  background: color-mix(in srgb, var(--surface) 82%, var(--cream));
+}
+
+.xlsx-preview-table th:nth-child(2),
+.xlsx-preview-table td:nth-child(2) {
+  min-width: 175px;
+  position: sticky;
+  left: 62px;
+  z-index: 3;
+  background: var(--surface);
+  box-shadow: 8px 0 14px rgba(0, 0, 0, .035);
+}
+
+.xlsx-preview-table th:nth-child(2) {
+  z-index: 6;
+  background: color-mix(in srgb, var(--surface) 82%, var(--cream));
+}
+
+.xlsx-preview-table .price-column {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.xlsx-preview-table .invalid-row td {
+  background-color: color-mix(in srgb, #e55062 5%, var(--surface));
+}
+
+.xlsx-preview-table .invalid-row td:first-child,
+.xlsx-preview-table .invalid-row td:nth-child(2) {
+  background-color: color-mix(in srgb, #e55062 5%, var(--surface));
+}
+
+.preview-status {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: .63rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .35px;
+}
+
+.preview-status.valid {
+  color: #2ab876;
+  background: rgba(37, 165, 106, .12);
+}
+
+.preview-status.invalid {
+  color: #e55062;
+  background: rgba(229, 80, 98, .12);
+}
+
+.preview-row-error {
+  max-width: 160px;
+  display: block;
+  overflow: hidden;
+  margin-top: 5px;
+  color: #e55062;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xlsx-preview-actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 15px 26px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, .045);
+}
+
+.xlsx-preview-actions button {
+  width: auto;
+  min-width: 138px;
+  min-height: 43px;
+  margin: 0;
+  border-radius: 9px;
+}
+
+@media (max-width: 760px) {
+  .xlsx-preview-backdrop {
+    padding: 8px;
+  }
+
+  .xlsx-preview-modal {
+    width: 100%;
+    height: calc(100dvh - 16px);
+    min-height: 0;
+    border-radius: 13px;
+  }
+
+  .xlsx-preview-header {
+    padding: 18px 16px 14px;
+  }
+
+  .xlsx-preview-summary {
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+
+  .xlsx-preview-summary > div {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .xlsx-preview-summary > p {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .xlsx-preview-table,
+  .xlsx-preview-table thead,
+  .xlsx-preview-table tbody {
+    display: table;
+    width: max-content;
+  }
+
+  .xlsx-preview-table thead {
+    display: table-header-group;
+  }
+
+  .xlsx-preview-table tbody {
+    display: table-row-group;
+  }
+
+  .xlsx-preview-table tr {
+    display: table-row;
+    width: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .xlsx-preview-table th,
+  .xlsx-preview-table td {
+    display: table-cell;
+    width: auto;
+    padding: 10px 12px;
+    border-right: 1px solid var(--border);
+    text-align: left;
+  }
+
+  .xlsx-preview-table td::before {
+    display: none;
+  }
+
+  .xlsx-preview-table .price-column {
+    text-align: right;
+  }
+
+  .xlsx-preview-actions {
+    padding: 12px 16px;
+  }
+
+  .xlsx-preview-actions button {
+    min-width: 0;
+    flex: 1;
+  }
+}

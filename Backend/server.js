@@ -12,7 +12,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }));
 
@@ -88,6 +88,13 @@ function managementRoutes(path, Model) {
 managementRoutes('roles', Role);
 
 const productFields = ['productCode', 'productName', 'gender', 'categoryCode', 'subCategoryCode', 'subSubCategory', 'supplierCode', 'costPrice', 'orderPrice', 'averageCost', 'sellingPrice', 'wholesalePrice', 'minimumPrice'];
+const allowedGenders = ['MENS', 'WOMENS', 'BOYS', 'GIRLS', 'UNISEX'];
+const normalizeGender = (value = '') => {
+  const gender = String(value).trim().toUpperCase();
+  if (gender === 'MEN') return 'MENS';
+  if (gender === 'WOMEN') return 'WOMENS';
+  return gender;
+};
 const parseProductName = (value = '') => {
   const productName = String(value).trim().toUpperCase();
   const match = productName.match(/^([A-Z0-9]+)-(\d{2})(\d{2})-([A-Z0-9]+)-([A-Z0-9]+)$/);
@@ -105,6 +112,7 @@ const parseProductName = (value = '') => {
 app.get('/api/products', async (_req, res) => res.json(await Product.find().sort({ createdAt: -1 })));
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));
+  data.gender = normalizeGender(data.gender);
   if (!/^\d{13}$/.test(data.productCode || '')) return res.status(400).json({ message: 'Product Code must contain exactly 13 numbers.' });
   const productDetails = parseProductName(data.productName);
   if (!productDetails) return res.status(400).json({ message: 'Product Name must use the format FP03-0205-ASSTD-XL.' });
@@ -115,8 +123,95 @@ app.post('/api/products', async (req, res) => {
   try { res.status(201).json(await Product.create(data)); }
   catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Product Code already exists.' : error.message }); }
 });
+app.post('/api/products/bulk', async (req, res) => {
+  const rows = req.body.products;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ message: 'The spreadsheet does not contain any products.' });
+  if (rows.length > 2000) return res.status(400).json({ message: 'A maximum of 2,000 products can be imported at once.' });
+
+  const errors = [];
+  const candidates = [];
+  const seenCodes = new Set();
+  const priceFields = ['costPrice', 'orderPrice', 'averageCost', 'sellingPrice', 'wholesalePrice', 'minimumPrice'];
+  const requiredTextFields = ['productName', 'gender', 'categoryCode', 'subCategoryCode', 'supplierCode'];
+
+  rows.forEach((row, index) => {
+    const rowNumber = Number(row.rowNumber) || index + 2;
+    const data = Object.fromEntries(productFields.map((field) => [field, row[field]]));
+    data.productCode = String(data.productCode ?? '').trim();
+    requiredTextFields.forEach((field) => { data[field] = String(data[field] ?? '').trim(); });
+    data.subSubCategory = String(data.subSubCategory ?? '').trim();
+    data.gender = normalizeGender(data.gender);
+    data.supplierCode = (data.supplierCode || 'JOCKEY').toUpperCase();
+
+    if (!/^\d{13}$/.test(data.productCode)) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'Product Code must contain exactly 13 numbers.' });
+      return;
+    }
+    if (seenCodes.has(data.productCode)) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'Duplicate Product Code in this spreadsheet.' });
+      return;
+    }
+    seenCodes.add(data.productCode);
+
+    const productDetails = parseProductName(data.productName);
+    if (!productDetails) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'Product Name must use the format FP03-0205-ASSTD-XL.' });
+      return;
+    }
+    if (requiredTextFields.some((field) => !data[field])) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'A required field is empty.' });
+      return;
+    }
+    if (!allowedGenders.includes(data.gender)) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'Gender must be MENS, WOMENS, BOYS, GIRLS, or UNISEX.' });
+      return;
+    }
+
+    if (priceFields.some((field) => String(data[field] ?? '').trim() === '')) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'All price fields are required.' });
+      return;
+    }
+    for (const field of priceFields) data[field] = Number(data[field]);
+    if (priceFields.some((field) => !Number.isFinite(data[field]) || data[field] < 0)) {
+      errors.push({ row: rowNumber, productCode: data.productCode, message: 'All prices must be valid positive numbers or zero.' });
+      return;
+    }
+
+    Object.assign(data, productDetails, {
+      sku: data.productCode,
+      name: productDetails.productName,
+      category: data.categoryCode,
+      _sourceRow: rowNumber
+    });
+    candidates.push(data);
+  });
+
+  try {
+    const existingCodes = candidates.length
+      ? await Product.find({ productCode: { $in: candidates.map((item) => item.productCode) } }).distinct('productCode')
+      : [];
+    const existingSet = new Set(existingCodes);
+    const newProducts = candidates.filter((item) => {
+      if (!existingSet.has(item.productCode)) return true;
+      errors.push({ row: item._sourceRow, productCode: item.productCode, message: 'Product Code already exists.' });
+      return false;
+    });
+    newProducts.forEach((item) => delete item._sourceRow);
+    const insertedProducts = newProducts.length ? await Product.insertMany(newProducts, { ordered: true }) : [];
+    return res.status(insertedProducts.length ? 201 : 400).json({
+      message: insertedProducts.length ? `${insertedProducts.length} products imported successfully.` : 'No products were imported.',
+      inserted: insertedProducts.length,
+      failed: errors.length,
+      errors,
+      products: insertedProducts
+    });
+  } catch (error) {
+    return res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'One or more Product Codes already exist.' : error.message });
+  }
+});
 app.patch('/api/products/:id', async (req, res) => {
   const data = Object.fromEntries(productFields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+  if (data.gender !== undefined) data.gender = normalizeGender(data.gender);
   if (data.productCode && !/^\d{13}$/.test(data.productCode)) return res.status(400).json({ message: 'Product Code must contain exactly 13 numbers.' });
   if (data.productName !== undefined) {
     const productDetails = parseProductName(data.productName);
