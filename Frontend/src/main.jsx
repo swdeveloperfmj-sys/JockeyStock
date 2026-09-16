@@ -12,9 +12,13 @@ import "leaflet/dist/leaflet.css";
 import {
   FiBarChart2,
   FiBox,
+  FiCamera,
+  FiChevronLeft,
+  FiChevronRight,
   FiDownload,
   FiEdit2,
   FiFileText,
+  FiImage,
   FiLogOut,
   FiMenu,
   FiMoon,
@@ -950,6 +954,15 @@ const getSpreadsheetCellValue = (cell) => {
   }
   return value == null ? "" : String(value).trim();
 };
+const getProductImages = (product) => {
+  if (Array.isArray(product.images) && product.images.length) {
+    return product.images.map((image) => ({
+      _id: image._id,
+      url: image.url,
+    }));
+  }
+  return product.imageUrl ? [{ _id: "legacy", url: product.imageUrl }] : [];
+};
 function ProductMaster({ open }) {
   const [products, setProducts] = useState([]),
     [formOpen, setFormOpen] = useState(false),
@@ -961,7 +974,11 @@ function ProductMaster({ open }) {
     [saving, setSaving] = useState(false),
     [importing, setImporting] = useState(false),
     [importReport, setImportReport] = useState(null),
-    [pendingImport, setPendingImport] = useState(null);
+    [pendingImport, setPendingImport] = useState(null),
+    [imageUploadingId, setImageUploadingId] = useState(null),
+    [imagePreview, setImagePreview] = useState(null),
+    [imageDeleteTarget, setImageDeleteTarget] = useState(null),
+    [imageStatus, setImageStatus] = useState(null);
   const load = async () => {
     try {
       const r = await fetch(`${API_URL}/products`),
@@ -1312,6 +1329,91 @@ function ProductMaster({ open }) {
       setImporting(false);
     }
   };
+  const uploadProductImage = async (product, event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+    setImageStatus(null);
+    if (
+      files.some(
+        (file) =>
+          !["image/jpeg", "image/png", "image/webp"].includes(file.type),
+      )
+    ) {
+      setImageStatus({
+        type: "error",
+        message: "Only JPG, PNG, and WebP product images are allowed.",
+      });
+      return;
+    }
+    if (files.some((file) => file.size > 5 * 1024 * 1024)) {
+      setImageStatus({
+        type: "error",
+        message: "Each product image must be 5 MB or less.",
+      });
+      return;
+    }
+    const remainingSlots = 6 - getProductImages(product).length;
+    if (files.length > remainingSlots) {
+      setImageStatus({
+        type: "error",
+        message: `You can upload only ${remainingSlots} more image${remainingSlots === 1 ? "" : "s"} for this product.`,
+      });
+      return;
+    }
+    setImageUploadingId(product._id);
+    try {
+      const body = new FormData();
+      files.forEach((file) => body.append("images", file));
+      const response = await fetch(`${API_URL}/products/${product._id}/image`, {
+        method: "POST",
+        body,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message);
+      await load();
+      setImageStatus({
+        type: "success",
+        message: `${files.length} image${files.length === 1 ? "" : "s"} added to ${result.matchedProducts} product${result.matchedProducts === 1 ? "" : "s"} with Style ${result.style} and Packing Quantity ${result.packingQuantity}.`,
+      });
+    } catch (imageError) {
+      setImageStatus({ type: "error", message: imageError.message });
+    } finally {
+      setImageUploadingId(null);
+    }
+  };
+  const removeProductImage = async () => {
+    if (!imageDeleteTarget) return;
+    const { product, image } = imageDeleteTarget;
+    setImageUploadingId(product._id);
+    setImageStatus(null);
+    try {
+      const response = await fetch(
+        image
+          ? `${API_URL}/products/${product._id}/images/${image._id}`
+          : `${API_URL}/products/${product._id}/image`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.message);
+      }
+      if (image) await response.json();
+      await load();
+      setImageDeleteTarget(null);
+      setImagePreview(null);
+      setImageStatus({
+        type: "success",
+        message: image
+          ? `${product.productName || product.name} image removed.`
+          : `All images removed from ${product.productName || product.name}.`,
+      });
+    } catch (imageError) {
+      setImageStatus({ type: "error", message: imageError.message });
+    } finally {
+      setImageUploadingId(null);
+    }
+  };
   async function confirmDelete() {
     setSaving(true);
     setError("");
@@ -1443,6 +1545,22 @@ function ProductMaster({ open }) {
               +{importReport.errors.length - 8} more skipped rows
             </p>
           )}
+        </div>
+      )}
+      {imageStatus && (
+        <div
+          className={`product-image-status ${imageStatus.type}`}
+          role="status"
+        >
+          <FiImage />
+          <span>{imageStatus.message}</span>
+          <button
+            type="button"
+            aria-label="Close image message"
+            onClick={() => setImageStatus(null)}
+          >
+            <FiX />
+          </button>
         </div>
       )}
       {pendingImport && (
@@ -1615,6 +1733,7 @@ function ProductMaster({ open }) {
                       onChange={toggleAll}
                     />
                   </th>
+                  <th className="product-image-column">Image</th>
                   <th>Product Code</th>
                   <th>Reference Code 1</th>
                   <th>Product Name</th>
@@ -1653,6 +1772,91 @@ function ProductMaster({ open }) {
                         onDoubleClick={(event) => event.stopPropagation()}
                         onChange={() => toggleSelected(p._id)}
                       />
+                    </td>
+                    <td
+                      className="product-image-column"
+                      data-label="Image"
+                      onDoubleClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="product-image-cell">
+                        {getProductImages(p).length ? (
+                          <button
+                            type="button"
+                            className="product-thumbnail"
+                            title="View product image"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setImagePreview({
+                                images: getProductImages(p),
+                                index: 0,
+                                name: p.productName || p.name,
+                                product: p,
+                              });
+                            }}
+                          >
+                            <img
+                              src={getProductImages(p)[0].url}
+                              alt={p.productName || p.name}
+                              loading="lazy"
+                            />
+                            {getProductImages(p).length > 1 && (
+                              <span className="product-image-count">
+                                {getProductImages(p).length}
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="product-image-placeholder">
+                            <FiImage />
+                          </span>
+                        )}
+                        <label
+                          className={`product-image-upload${imageUploadingId === p._id ? " is-uploading" : ""}${getProductImages(p).length >= 6 ? " is-full" : ""}`}
+                          title={
+                            getProductImages(p).length >= 6
+                              ? "Maximum 6 images reached"
+                              : getProductImages(p).length
+                                ? "Add more images"
+                                : "Upload images"
+                          }
+                          onDoubleClick={(event) => event.stopPropagation()}
+                        >
+                          <FiCamera />
+                          <span>
+                            {imageUploadingId === p._id
+                              ? "Uploading"
+                              : getProductImages(p).length >= 6
+                                ? "Full"
+                                : getProductImages(p).length
+                                  ? "Add"
+                                  : "Upload"}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            multiple
+                            disabled={
+                              imageUploadingId === p._id ||
+                              getProductImages(p).length >= 6
+                            }
+                            onChange={(event) => uploadProductImage(p, event)}
+                          />
+                        </label>
+                        {getProductImages(p).length > 0 && (
+                          <button
+                            type="button"
+                            className="remove-product-image"
+                            title="Remove all images"
+                            disabled={imageUploadingId === p._id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setImageDeleteTarget({ product: p, image: null });
+                            }}
+                          >
+                            <FiTrash2 />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td data-label="Product Code">
                       {p.productCode || p.sku || "—"}
@@ -2028,6 +2232,148 @@ function ProductMaster({ open }) {
                 onClick={confirmDelete}
               >
                 {saving ? "Deleting..." : "Delete products"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {imagePreview && (
+        <div
+          className="modal-backdrop product-image-preview-backdrop"
+          onClick={() => setImagePreview(null)}
+        >
+          <section
+            className="product-image-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${imagePreview.name} product image`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="product-image-preview-header">
+              <div>
+                <p className="eyebrow">PRODUCT IMAGE</p>
+                <h2>{imagePreview.name}</h2>
+                <p className="product-gallery-count">
+                  Image {imagePreview.index + 1} of {imagePreview.images.length}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="close-modal"
+                aria-label="Close image preview"
+                onClick={() => setImagePreview(null)}
+              >
+                <FiX />
+              </button>
+            </div>
+            <div className="product-image-preview-canvas">
+              {imagePreview.images.length > 1 && (
+                <button
+                  type="button"
+                  className="gallery-arrow previous"
+                  aria-label="Previous image"
+                  onClick={() =>
+                    setImagePreview((current) => ({
+                      ...current,
+                      index:
+                        (current.index - 1 + current.images.length) %
+                        current.images.length,
+                    }))
+                  }
+                >
+                  <FiChevronLeft />
+                </button>
+              )}
+              <img
+                src={imagePreview.images[imagePreview.index].url}
+                alt={`${imagePreview.name} ${imagePreview.index + 1}`}
+              />
+              {imagePreview.images.length > 1 && (
+                <button
+                  type="button"
+                  className="gallery-arrow next"
+                  aria-label="Next image"
+                  onClick={() =>
+                    setImagePreview((current) => ({
+                      ...current,
+                      index: (current.index + 1) % current.images.length,
+                    }))
+                  }
+                >
+                  <FiChevronRight />
+                </button>
+              )}
+            </div>
+            <div className="product-image-gallery-footer">
+              <div className="product-image-thumbnails">
+                {imagePreview.images.map((image, index) => (
+                  <button
+                    type="button"
+                    className={index === imagePreview.index ? "active" : ""}
+                    key={image._id}
+                    aria-label={`View image ${index + 1}`}
+                    onClick={() =>
+                      setImagePreview((current) => ({ ...current, index }))
+                    }
+                  >
+                    <img src={image.url} alt="" />
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="remove-current-image"
+                onClick={() =>
+                  setImageDeleteTarget({
+                    product: imagePreview.product,
+                    image: imagePreview.images[imagePreview.index],
+                  })
+                }
+              >
+                <FiTrash2 /> Remove current
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {imageDeleteTarget && (
+        <div className="modal-backdrop">
+          <section className="confirm-modal delete-confirm" role="dialog">
+            <div className="modal-icon">
+              <FiImage />
+            </div>
+            <p className="eyebrow">REMOVE PRODUCT IMAGE</p>
+            <h2>
+              {imageDeleteTarget.image
+                ? "Remove this image?"
+                : "Remove all images?"}
+            </h2>
+            <p>
+              {imageDeleteTarget.image ? "This image" : "All images"} for{" "}
+              {imageDeleteTarget.product.productName ||
+                imageDeleteTarget.product.name}{" "}
+              will be permanently removed from Cloudinary.
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="cancel-button"
+                disabled={imageUploadingId === imageDeleteTarget.product._id}
+                onClick={() => setImageDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-button"
+                disabled={imageUploadingId === imageDeleteTarget.product._id}
+                onClick={removeProductImage}
+              >
+                {imageUploadingId === imageDeleteTarget.product._id
+                  ? "Removing..."
+                  : imageDeleteTarget.image
+                    ? "Remove image"
+                    : "Remove all"}
               </button>
             </div>
           </section>

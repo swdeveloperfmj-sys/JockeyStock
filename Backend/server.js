@@ -3,6 +3,8 @@ import cors from 'cors';
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
+import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
 import User from './models/User.js';
 import Location from './models/Location.js';
 import Role from './models/Role.js';
@@ -10,6 +12,98 @@ import Product from './models/Product.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true
+});
+const cloudinaryIsConfigured = () => Boolean(
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET
+);
+const productImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 6 },
+  fileFilter: (_req, file, callback) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    callback(allowedTypes.includes(file.mimetype) ? null : new Error('Only JPG, PNG, and WebP images are allowed.'), allowedTypes.includes(file.mimetype));
+  }
+}).array('images', 6);
+const receiveProductImage = (req, res, next) => productImageUpload(req, res, (error) => {
+  if (!error) return next();
+  const message = error.code === 'LIMIT_FILE_SIZE' ? 'Image size must be 5 MB or less.' : error.message;
+  return res.status(400).json({ message });
+});
+const uploadImageBuffer = (buffer, options) => new Promise((resolve, reject) => {
+  const stream = cloudinary.uploader.upload_stream(options, (error, result) => error ? reject(error) : resolve(result));
+  stream.end(buffer);
+});
+const migrateLegacyProductImage = (product) => {
+  if (
+    product.imageUrl &&
+    product.imagePublicId &&
+    !product.images.some((image) => image.publicId === product.imagePublicId)
+  ) {
+    product.images.unshift({ url: product.imageUrl, publicId: product.imagePublicId });
+  }
+};
+const productImageEntries = (product) => {
+  migrateLegacyProductImage(product);
+  return product.images.map((image) => ({
+    _id: image._id,
+    url: image.url,
+    publicId: image.publicId
+  }));
+};
+const sharedProductImages = (products, excludedPublicId = '') => {
+  const imagesByPublicId = new Map();
+  for (const product of products) {
+    for (const image of productImageEntries(product)) {
+      if (image.publicId !== excludedPublicId && !imagesByPublicId.has(image.publicId)) {
+        imagesByPublicId.set(image.publicId, image);
+      }
+    }
+  }
+  return [...imagesByPublicId.values()];
+};
+const productImageGroup = (product) => ({
+  style: product.style,
+  packingQuantity: product.packingQuantity
+});
+const syncProductImageGroup = async (filter, images) => {
+  const firstImage = images[0];
+  const result = await Product.updateMany(filter, {
+    $set: {
+      images,
+      imageUrl: firstImage?.url || '',
+      imagePublicId: firstImage?.publicId || ''
+    }
+  });
+  return result.modifiedCount;
+};
+const productImageGroupKey = (product) => `${product.style}::${product.packingQuantity}`;
+const addInheritedProductImages = async (products) => {
+  if (!products.length) return;
+  const uniqueGroups = new Map();
+  for (const product of products) uniqueGroups.set(productImageGroupKey(product), productImageGroup(product));
+  const groupProducts = await Product.find({ $or: [...uniqueGroups.values()] }).select('+imagePublicId');
+  const productsByGroup = new Map();
+  for (const product of groupProducts) {
+    const key = productImageGroupKey(product);
+    if (!productsByGroup.has(key)) productsByGroup.set(key, []);
+    productsByGroup.get(key).push(product);
+  }
+  for (const product of products) {
+    const images = sharedProductImages(productsByGroup.get(productImageGroupKey(product)) || []).slice(0, 6);
+    if (!images.length) continue;
+    product.images = images;
+    product.imageUrl = images[0].url;
+    product.imagePublicId = images[0].publicId;
+  }
+};
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
@@ -120,7 +214,10 @@ app.post('/api/products', async (req, res) => {
   const required = productFields.filter((field) => field !== 'subSubCategory');
   if (required.some((field) => data[field] === undefined || data[field] === '')) return res.status(400).json({ message: 'Please complete all required product fields.' });
   Object.assign(data, { sku: data.productCode, name: data.productName, category: data.categoryCode });
-  try { res.status(201).json(await Product.create(data)); }
+  try {
+    await addInheritedProductImages([data]);
+    res.status(201).json(await Product.create(data));
+  }
   catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Product Code already exists.' : error.message }); }
 });
 app.post('/api/products/bulk', async (req, res) => {
@@ -197,6 +294,7 @@ app.post('/api/products/bulk', async (req, res) => {
       return false;
     });
     newProducts.forEach((item) => delete item._sourceRow);
+    await addInheritedProductImages(newProducts);
     const insertedProducts = newProducts.length ? await Product.insertMany(newProducts, { ordered: true }) : [];
     return res.status(insertedProducts.length ? 201 : 400).json({
       message: insertedProducts.length ? `${insertedProducts.length} products imported successfully.` : 'No products were imported.',
@@ -224,7 +322,119 @@ app.patch('/api/products/:id', async (req, res) => {
   try { const product = await Product.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true }); if (!product) return res.status(404).json({ message: 'Product not found.' }); res.json(product); }
   catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Product Code already exists.' : error.message }); }
 });
-app.delete('/api/products/:id', async (req, res) => { const product = await Product.findByIdAndDelete(req.params.id); if (!product) return res.status(404).json({ message: 'Product not found.' }); res.status(204).end(); });
+app.delete('/api/products/:id', async (req, res) => {
+  const product = await Product.findById(req.params.id).select('+imagePublicId');
+  if (!product) return res.status(404).json({ message: 'Product not found.' });
+  const publicIds = new Set(productImageEntries(product).map((image) => image.publicId));
+  await product.deleteOne();
+  if (cloudinaryIsConfigured()) {
+    for (const publicId of publicIds) {
+      const isStillUsed = await Product.exists({
+        $or: [{ 'images.publicId': publicId }, { imagePublicId: publicId }]
+      });
+      if (isStillUsed) continue;
+      try { await cloudinary.uploader.destroy(publicId, { invalidate: true }); }
+      catch (error) { console.error('Unable to remove Cloudinary image:', error.message); }
+    }
+  }
+  res.status(204).end();
+});
+app.post('/api/products/:id/image', receiveProductImage, async (req, res) => {
+  if (!cloudinaryIsConfigured()) return res.status(503).json({ message: 'Cloudinary is not configured. Add the Cloudinary credentials to Backend/.env.' });
+  if (!req.files?.length) return res.status(400).json({ message: 'Select one or more images to upload.' });
+  const uploadedImages = [];
+  try {
+    const product = await Product.findById(req.params.id).select('+imagePublicId');
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+    const groupFilter = productImageGroup(product);
+    const groupProducts = await Product.find(groupFilter).select('+imagePublicId');
+    const existingImages = sharedProductImages(groupProducts);
+    const remainingSlots = 6 - existingImages.length;
+    if (remainingSlots <= 0) return res.status(400).json({ message: 'Products with this Style and Packing Quantity already have the maximum of 6 shared images.' });
+    if (req.files.length > remainingSlots) {
+      return res.status(400).json({ message: `You can upload only ${remainingSlots} more image${remainingSlots === 1 ? '' : 's'} for this product.` });
+    }
+    for (const [index, file] of req.files.entries()) {
+      const uploaded = await uploadImageBuffer(file.buffer, {
+        resource_type: 'image',
+        folder: 'jockey-stock/products',
+        public_id: `${product._id}-${Date.now()}-${index + 1}`,
+        overwrite: false,
+        transformation: [{ width: 1600, height: 1600, crop: 'limit', quality: 'auto' }]
+      });
+      uploadedImages.push(uploaded);
+      existingImages.push({
+        _id: new mongoose.Types.ObjectId(),
+        url: uploaded.secure_url,
+        publicId: uploaded.public_id
+      });
+    }
+    await syncProductImageGroup(groupFilter, existingImages);
+    return res.json({
+      imageUrl: existingImages[0]?.url || '',
+      images: existingImages.map((image) => ({ _id: image._id, url: image.url })),
+      matchedProducts: groupProducts.length,
+      style: product.style,
+      packingQuantity: product.packingQuantity
+    });
+  } catch (error) {
+    for (const image of uploadedImages) {
+      try { await cloudinary.uploader.destroy(image.public_id, { invalidate: true }); }
+      catch (cleanupError) { console.error('Unable to clean up Cloudinary image:', cleanupError.message); }
+    }
+    const message = /invalid signature|api_secret mismatch/i.test(error.message)
+      ? 'Cloudinary credentials are invalid. Copy the API Secret again from the Cloudinary dashboard and restart the backend.'
+      : `Image upload failed: ${error.message}`;
+    return res.status(502).json({ message });
+  }
+});
+app.delete('/api/products/:id/image', async (req, res) => {
+  if (!cloudinaryIsConfigured()) return res.status(503).json({ message: 'Cloudinary is not configured. Add the Cloudinary credentials to Backend/.env.' });
+  try {
+    const product = await Product.findById(req.params.id).select('+imagePublicId');
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+    const groupFilter = productImageGroup(product);
+    const groupProducts = await Product.find(groupFilter).select('+imagePublicId');
+    const publicIds = new Set(sharedProductImages(groupProducts).map((image) => image.publicId));
+    await syncProductImageGroup(groupFilter, []);
+    for (const publicId of publicIds) {
+      await cloudinary.uploader.destroy(publicId, { invalidate: true });
+    }
+    return res.status(204).end();
+  } catch (error) {
+    const message = /invalid signature|api_secret mismatch/i.test(error.message)
+      ? 'Cloudinary credentials are invalid. Copy the API Secret again from the Cloudinary dashboard and restart the backend.'
+      : `Image removal failed: ${error.message}`;
+    return res.status(502).json({ message });
+  }
+});
+app.delete('/api/products/:id/images/:imageId', async (req, res) => {
+  if (!cloudinaryIsConfigured()) return res.status(503).json({ message: 'Cloudinary is not configured. Add the Cloudinary credentials to Backend/.env.' });
+  try {
+    const product = await Product.findById(req.params.id).select('+imagePublicId');
+    if (!product) return res.status(404).json({ message: 'Product not found.' });
+    const groupFilter = productImageGroup(product);
+    const groupProducts = await Product.find(groupFilter).select('+imagePublicId');
+    const allImages = sharedProductImages(groupProducts);
+    const image = req.params.imageId === 'legacy'
+      ? allImages.find((item) => item.publicId === product.imagePublicId)
+      : allImages.find((item) => String(item._id) === req.params.imageId);
+    if (!image?.publicId) return res.status(404).json({ message: 'Product image not found.' });
+    const remainingImages = sharedProductImages(groupProducts, image.publicId);
+    await syncProductImageGroup(groupFilter, remainingImages);
+    await cloudinary.uploader.destroy(image.publicId, { invalidate: true });
+    return res.json({
+      imageUrl: remainingImages[0]?.url || '',
+      images: remainingImages.map((item) => ({ _id: item._id, url: item.url })),
+      matchedProducts: groupProducts.length
+    });
+  } catch (error) {
+    const message = /invalid signature|api_secret mismatch/i.test(error.message)
+      ? 'Cloudinary credentials are invalid. Copy the API Secret again from the Cloudinary dashboard and restart the backend.'
+      : `Image removal failed: ${error.message}`;
+    return res.status(502).json({ message });
+  }
+});
 
 app.get('/api/dashboard/summary', async (_req, res) => {
   try {
@@ -274,7 +484,23 @@ async function startServer() {
   }
   await mongoose.connect(process.env.MONGODB_URI);
   console.log('MongoDB connected.');
-  app.listen(port, () => console.log(`Jockey Stock API running at http://localhost:${port}`));
+  await new Promise((resolve, reject) => {
+    const server = app.listen(port);
+    const handleError = (error) => reject(error);
+    server.once('error', handleError);
+    server.once('listening', () => {
+      server.off('error', handleError);
+      console.log(`Jockey Stock API running at http://localhost:${port}`);
+      resolve();
+    });
+  });
 }
 
-startServer().catch((error) => { console.error('Unable to start server:', error.message); process.exit(1); });
+startServer().catch((error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use. Stop the other backend process or choose a different PORT in Backend/.env.`);
+  } else {
+    console.error('Unable to start server:', error.message);
+  }
+  process.exit(1);
+});
