@@ -1,0 +1,12 @@
+{
+  "name": "jockey-stock-management",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names backend,frontend --prefix-colors blue,magenta \"npm --prefix Backend run dev\" \"npm --prefix Frontend run dev\"",
+    "backend": "npm --prefix Backend run dev",
+    "frontend": "npm --prefix Frontend run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
