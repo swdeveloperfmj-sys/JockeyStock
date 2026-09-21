@@ -317,7 +317,26 @@ const parseProductName = (value = '') => {
     size: match[5]
   };
 };
-app.get('/api/products', async (_req, res) => res.json(await Product.find().sort({ createdAt: -1 })));
+app.get('/api/products', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  const filter = user.role === 'LOCATION_MANAGER' ? { plant: user.location } : {};
+  res.json(await Product.find(filter).sort({ createdAt: -1 }));
+});
+app.post('/api/products/:id/stock', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can update factory stock.' });
+  const quantity = Number(req.body.quantity);
+  if (!Number.isInteger(quantity) || quantity < 1) return res.status(400).json({ message: 'Enter a whole quantity of at least 1.' });
+  const product = await Product.findOneAndUpdate(
+    { _id: req.params.id, plant: user.location },
+    { $inc: { openingStock: quantity } },
+    { new: true, runValidators: true }
+  );
+  if (!product) return res.status(404).json({ message: 'Product not found in your factory.' });
+  res.json(product);
+});
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));
   data.gender = normalizeGender(data.gender);

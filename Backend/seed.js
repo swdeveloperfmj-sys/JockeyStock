@@ -21,9 +21,10 @@ for (const user of demoUsers) {
 
 await Location.bulkWrite([
   { name: 'Head Office', address: 'Colombo', latitude: 6.9271, longitude: 79.8612 },
-  { name: 'Colombo', address: 'Colombo District', latitude: 6.9344, longitude: 79.8428 }
+  { name: 'Colombo', address: 'Colombo District', latitude: 6.9344, longitude: 79.8428 },
+  { name: 'FMJ New Plant', address: 'Factory location', latitude: null, longitude: null }
 ].map((location) => ({ updateOne: { filter: { name: location.name }, update: location, upsert: true } })));
-await Role.bulkWrite(['SUPER_ADMIN', 'SALES_REP'].map((name) => ({ updateOne: { filter: { name }, update: { name }, upsert: true } })));
+await Role.bulkWrite(['SUPER_ADMIN', 'SALES_REP', 'LOCATION_MANAGER'].map((name) => ({ updateOne: { filter: { name }, update: { name }, upsert: true } })));
 
 console.log('Demo users seeded successfully.');
 await mongoose.disconnect();

@@ -170,7 +170,13 @@ function UserModal({ user, onClose, onSaved }) {
         fetch(`${API_URL}/${x}`).then((r) => r.json()),
       ),
     ).then(([r, l]) => {
-      setR(r);
+      const requiredRoles = ["SUPER_ADMIN", "SALES_REP", "LOCATION_MANAGER"];
+      setR([
+        ...r,
+        ...requiredRoles
+          .filter((name) => !r.some((role) => role.name === name))
+          .map((name) => ({ _id: name, name })),
+      ]);
       setL(l);
     });
   }, []);
@@ -363,7 +369,7 @@ function UsersPage() {
                   <td data-label="Username">{u.username}</td>
                   <td data-label="Role">
                     <span className="role-badge">
-                      {u.role === "SUPER_ADMIN" ? "Super Admin" : "Sales Rep"}
+                      {u.role.replaceAll("_", " ")}
                     </span>
                   </td>
                   <td data-label="Location">{u.location || "—"}</td>
@@ -702,6 +708,36 @@ function SalesHistoryPage({ refreshKey }) {
   const total = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
   return <section className="sales-page"><div className="page-title"><div><p className="eyebrow">SALES</p><h1>My sales</h1><p className="page-description">Completed customer orders and sales totals.</p></div><strong className="sales-total">LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>{error ? <p className="dashboard-error">{error}</p> : orders.length ? <div className="sales-history">{orders.map((order) => <article key={order._id}><div><strong>{order.orderNumber}</strong><span>{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</span><small>{new Date(order.createdAt).toLocaleString()}</small></div><div><span>{order.totalQuantity} items</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div></article>)}</div> : <p className="empty-dashboard-state">No sales orders have been created yet.</p>}</section>;
 }
+function StockUpdatePage() {
+  const [products, setProducts] = useState([]), [selectedProduct, setSelectedProduct] = useState(null), [quantity, setQuantity] = useState(""), [error, setError] = useState(""), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
+  const load = async () => {
+    try {
+      const response = await fetch(`${API_URL}/products`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setProducts(data);
+    } catch (requestError) { setError(requestError.message); }
+  };
+  useEffect(() => { load(); }, []);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError(""); setMessage("");
+    if (!selectedProduct) return;
+    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) return setError("Enter a whole quantity of at least 1.");
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/products/${selectedProduct._id}/stock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quantity: Number(quantity) }) });
+      const updated = await response.json();
+      if (!response.ok) throw new Error(updated.message);
+      setProducts((items) => items.map((product) => product._id === updated._id ? updated : product));
+      setMessage(`${updated.productName || updated.name} stock is now ${Number(updated.openingStock).toLocaleString()} ${updated.unit || "Pieces"}.`);
+      setQuantity("");
+      setSelectedProduct(null);
+    } catch (requestError) { setError(requestError.message); }
+    finally { setSaving(false); }
+  };
+  return <section className="stock-update-page"><div className="page-title"><div><p className="eyebrow">FACTORY INVENTORY</p><h1>Update stock</h1><p className="page-description">Double-click a product card to add received stock.</p></div></div>{error && <p className="dashboard-error">{error}</p>}{message && <p className="stock-update-success">{message}</p>}<div className="factory-product-grid">{products.map((product) => { const image = product.images?.[0]?.url || product.imageUrl; return <article className="factory-product-card" key={product._id} onDoubleClick={() => { setSelectedProduct(product); setQuantity(""); setError(""); }} title="Double-click to update stock"><div className="factory-product-image">{image ? <img src={image} alt={product.productName || product.name} loading="lazy" /> : <FiImage aria-label="Product image unavailable" />}</div><div className="factory-product-content"><span>{product.productCode || product.sku}</span><h2>{product.productName || product.name}</h2><div><small>Category</small><b>{product.categoryCode || product.category || "—"}</b><small>Gender</small><b>{product.gender || "—"}</b><small>Style</small><b>{product.style || "—"}</b><small>Colour / Size</small><b>{product.color || "—"} / {product.size || "—"}</b></div><strong className="factory-stock">{Number(product.openingStock).toLocaleString()} <small>{product.unit || "Pieces"}</small></strong></div></article>; })}</div>{selectedProduct && <div className="modal-backdrop" onClick={() => setSelectedProduct(null)}><section className="stock-update-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><div className="modal-title"><div><p className="eyebrow">STOCK UPDATE</p><h2>{selectedProduct.productName || selectedProduct.name}</h2><p className="stock-update-current">Current stock: <strong>{Number(selectedProduct.openingStock).toLocaleString()} {selectedProduct.unit || "Pieces"}</strong></p></div><button type="button" className="close-modal" onClick={() => setSelectedProduct(null)}><FiX /></button></div><form onSubmit={submit}><label>Quantity to add<input autoFocus type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" required /></label><div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setSelectedProduct(null)}>Cancel</button><button disabled={saving}>{saving ? "Updating…" : "Add stock"}</button></div></form></section></div>}</section>;
+}
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
@@ -711,8 +747,13 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [dashboardError, setDashboardError] = useState(""),
     [salesProducts, setSalesProducts] = useState([]),
     [salesProductsError, setSalesProductsError] = useState(""),
-    [salesRefreshKey, setSalesRefreshKey] = useState(0),
-    admin = user.role === "SUPER_ADMIN";
+    [salesOrders, setSalesOrders] = useState([]),
+    [salesOrdersError, setSalesOrdersError] = useState(""),
+    [orderRefreshKey, setOrderRefreshKey] = useState(0),
+    [salesProductFilters, setSalesProductFilters] = useState({ search: "", category: "", gender: "" }),
+    [salesImagePreview, setSalesImagePreview] = useState(null),
+    admin = user.role === "SUPER_ADMIN",
+    locationManager = user.role === "LOCATION_MANAGER";
   const links = admin
     ? [
         [FiBarChart2, "Dashboard"],
@@ -722,7 +763,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiBox, "Locations"],
         [FiUsers, "Roles"],
       ]
-    : [
+    : locationManager ? [
+        [FiBarChart2, "Dashboard"],
+        [FiBox, "Stock Update"],
+      ] : [
         [FiBarChart2, "Dashboard"],
         [FiPlusCircle, "Create Order"],
         [FiFileText, "Sales"],
@@ -742,6 +786,28 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       active = false;
     };
   }, [admin, view]);
+  const catalogProducts = locationManager ? salesProducts : salesProducts.filter((product) => Number(product.openingStock || 0) > 0);
+  const salesCategories = [...new Set(catalogProducts.map((product) => product.categoryCode || product.category).filter(Boolean))].sort();
+  const salesGenders = [...new Set(catalogProducts.map((product) => product.gender).filter(Boolean))].sort();
+  const filteredSalesProducts = catalogProducts.filter((product) => {
+    const search = salesProductFilters.search.trim().toLowerCase();
+    const searchable = [
+      product.productCode,
+      product.sku,
+      product.productName,
+      product.name,
+      product.style,
+      product.color,
+      product.size,
+      product.categoryCode,
+      product.category,
+    ].filter(Boolean).join(" ").toLowerCase();
+    return (
+      (!search || searchable.includes(search)) &&
+      (!salesProductFilters.category || (product.categoryCode || product.category) === salesProductFilters.category) &&
+      (!salesProductFilters.gender || product.gender === salesProductFilters.gender)
+    );
+  });
   useEffect(() => {
     if (admin || view !== "Dashboard") return;
     let active = true;
@@ -757,6 +823,21 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       active = false;
     };
   }, [admin, view]);
+  useEffect(() => {
+    if (admin || view !== "Dashboard") return;
+    let active = true;
+    setSalesOrdersError("");
+    fetch(`${API_URL}/orders`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        if (active) setSalesOrders(data);
+      })
+      .catch((error) => active && setSalesOrdersError(error.message));
+    return () => {
+      active = false;
+    };
+  }, [admin, view, orderRefreshKey]);
   const formatNumber = (value) =>
     value == null ? "—" : Number(value).toLocaleString();
   const liveAdminStats = [
@@ -776,15 +857,34 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         ["My Sales Today", "LKR 28,500"],
         ["Orders Created", "14"],
       ];
+  const today = new Date();
+  const isToday = (date) => {
+    const value = new Date(date);
+    return value.getFullYear() === today.getFullYear() && value.getMonth() === today.getMonth() && value.getDate() === today.getDate();
+  };
+  const todaysOrders = salesOrders.filter((order) => isToday(order.createdAt));
+  const todaysSales = todaysOrders.reduce((total, order) => total + Number(order.totalAmount || 0), 0);
+  const salesStats = [
+    ["Sales Today", `LKR ${todaysSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`],
+    ["Orders Today", formatNumber(todaysOrders.length)],
+    ["Available Products", formatNumber(catalogProducts.length)],
+  ];
+  const locationManagerStats = [
+    ["Factory Products", formatNumber(salesProducts.length)],
+    ["Total Factory Stock", formatNumber(salesProducts.reduce((total, product) => total + Number(product.openingStock || 0), 0))],
+    ["Out of Stock", formatNumber(salesProducts.filter((product) => Number(product.openingStock || 0) === 0).length)],
+  ];
   const header = (
     <header>
       <div>
         <p className="eyebrow">
-          {admin ? "SUPER ADMIN" : "SALES REPRESENTATIVE"}
+          {admin ? "SUPER ADMIN" : locationManager ? "LOCATION MANAGER" : "SALES REPRESENTATIVE"}
         </p>
         <h1>
           {["Users", "Locations", "Roles"].includes(view)
             ? `Manage ${view.toLowerCase()}.`
+            : view === "Stock Update"
+              ? "Update factory stock."
             : view === "Create Order"
               ? "Create sales order."
               : view === "Sales"
@@ -803,7 +903,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       </div>
     </header>
   );
-  const displayedStats = admin ? liveAdminStats : stats;
+  const displayedStats = admin ? liveAdminStats : locationManager ? locationManagerStats : salesStats;
   const content =
     view === "Users" ? (
       <UsersPage />
@@ -811,6 +911,12 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
       <SettingsPage type="roles" />
+    ) : view === "Stock Update" && locationManager ? (
+      <StockUpdatePage />
+    ) : view === "Create Order" && !admin && !locationManager ? (
+      <SalesOrderPage onOrderCreated={() => { setOrderRefreshKey((key) => key + 1); setV("Sales"); }} />
+    ) : view === "Sales" && !admin && !locationManager ? (
+      <SalesHistoryPage refreshKey={orderRefreshKey} />
     ) : (
       <>
         <section className="stats">
@@ -825,64 +931,65 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         {admin && dashboardError && (
           <p className="dashboard-error">{dashboardError}</p>
         )}
-        <section className="activity recent-activity">
-          <h2>{admin ? "Recent Product Updates" : "Today’s activity"}</h2>
-          {admin ? (
-            dashboardData?.recentProducts?.length ? (
-              <div className="recent-product-list">
-                {dashboardData.recentProducts.map((product) => (
-                  <article key={product._id}>
-                    <div className="recent-product-main">
-                      <span className="recent-sku">
-                        {product.productCode || product.sku}
-                      </span>
-                      <div>
-                        <strong>{product.productName || product.name}</strong>
-                        <small>
-                          {product.categoryCode || product.category}
-                        </small>
-                      </div>
-                    </div>
-                    <div className="recent-stock">
-                      <strong>{formatNumber(product.openingStock)}</strong>
-                      <small>{product.unit}</small>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="empty-dashboard-state">
-                No products have been added yet.
-              </p>
-            )
-          ) : (
-            <p>Create customer orders and keep track of your sales progress.</p>
-          )}
-        </section>
         {!admin && view === "Dashboard" && (
           <section className="sales-product-catalog">
             <div className="sales-product-catalog-heading">
               <div>
-                <h2>Available products</h2>
-                <p>Browse product details and available stock.</p>
+                <h2>{locationManager ? "Factory products" : "Available products"}</h2>
+                <p>{locationManager ? `Products assigned to ${user.location}.` : "Browse product details and available stock."}</p>
               </div>
-              <span>{salesProducts.length} products</span>
+              <span>{filteredSalesProducts.length} of {catalogProducts.length} products</span>
+            </div>
+            <div className="sales-product-filters" aria-label="Filter available products">
+              <input
+                type="search"
+                value={salesProductFilters.search}
+                onChange={(event) => setSalesProductFilters((filters) => ({ ...filters, search: event.target.value }))}
+                placeholder="Search name, code, style, colour..."
+                aria-label="Search available products"
+              />
+              <select
+                value={salesProductFilters.category}
+                onChange={(event) => setSalesProductFilters((filters) => ({ ...filters, category: event.target.value }))}
+                aria-label="Filter by category"
+              >
+                <option value="">All categories</option>
+                {salesCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+              <select
+                value={salesProductFilters.gender}
+                onChange={(event) => setSalesProductFilters((filters) => ({ ...filters, gender: event.target.value }))}
+                aria-label="Filter by gender"
+              >
+                <option value="">All genders</option>
+                {salesGenders.map((gender) => <option key={gender} value={gender}>{gender}</option>)}
+              </select>
             </div>
             {salesProductsError ? (
               <p className="dashboard-error">{salesProductsError}</p>
-            ) : salesProducts.length ? (
+            ) : filteredSalesProducts.length ? (
               <div className="sales-product-grid">
-                {salesProducts.map((product) => {
-                  const image = product.images?.[0]?.url || product.imageUrl;
+                {filteredSalesProducts.map((product) => {
+                  const images = Array.isArray(product.images) && product.images.length
+                    ? product.images
+                    : product.imageUrl ? [{ _id: "legacy", url: product.imageUrl }] : [];
+                  const image = images[0]?.url;
                   return (
                     <article className="sales-product-card" key={product._id}>
-                      <div className="sales-product-image">
+                      <button
+                        type="button"
+                        className={`sales-product-image${image ? " is-viewable" : ""}`}
+                        disabled={!image}
+                        onClick={() => setSalesImagePreview({ images, index: 0, name: product.productName || product.name })}
+                        aria-label={`View images for ${product.productName || product.name}`}
+                      >
                         {image ? (
                           <img src={image} alt={product.productName || product.name} loading="lazy" />
                         ) : (
                           <FiImage aria-label="Product image unavailable" />
                         )}
-                      </div>
+                        {images.length > 1 && <span className="sales-product-image-count">{images.length} images</span>}
+                      </button>
                       <div className="sales-product-content">
                         <span className="sales-product-code">{product.productCode || product.sku}</span>
                         <h3>{product.productName || product.name}</h3>
@@ -900,7 +1007,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 })}
               </div>
             ) : (
-              <p className="empty-dashboard-state">No products are available yet.</p>
+              <p className="empty-dashboard-state">{catalogProducts.length ? "No products match the selected filters." : "No products are available yet."}</p>
             )}
           </section>
         )}
@@ -928,6 +1035,26 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 Yes, sign out
               </button>
             </div>
+          </section>
+        </div>
+      )}
+      {salesImagePreview && (
+        <div className="modal-backdrop sales-image-preview-backdrop" onClick={() => setSalesImagePreview(null)}>
+          <section className="sales-image-preview-modal" role="dialog" aria-modal="true" aria-label={`${salesImagePreview.name} images`} onClick={(event) => event.stopPropagation()}>
+            <div className="product-image-preview-header">
+              <div>
+                <p className="eyebrow">PRODUCT IMAGES</p>
+                <h2>{salesImagePreview.name}</h2>
+                <p className="product-gallery-count">Image {salesImagePreview.index + 1} of {salesImagePreview.images.length}</p>
+              </div>
+              <button type="button" className="close-modal" aria-label="Close image preview" onClick={() => setSalesImagePreview(null)}><FiX /></button>
+            </div>
+            <div className="product-image-preview-canvas">
+              {salesImagePreview.images.length > 1 && <button type="button" className="gallery-arrow previous" aria-label="Previous image" onClick={() => setSalesImagePreview((preview) => ({ ...preview, index: (preview.index - 1 + preview.images.length) % preview.images.length }))}><FiChevronLeft /></button>}
+              <img src={salesImagePreview.images[salesImagePreview.index].url} alt={`${salesImagePreview.name} ${salesImagePreview.index + 1}`} />
+              {salesImagePreview.images.length > 1 && <button type="button" className="gallery-arrow next" aria-label="Next image" onClick={() => setSalesImagePreview((preview) => ({ ...preview, index: (preview.index + 1) % preview.images.length }))}><FiChevronRight /></button>}
+            </div>
+            {salesImagePreview.images.length > 1 && <div className="product-image-gallery-footer"><div className="product-image-thumbnails">{salesImagePreview.images.map((image, index) => <button type="button" className={index === salesImagePreview.index ? "active" : ""} key={image._id || image.url} aria-label={`View image ${index + 1}`} onClick={() => setSalesImagePreview((preview) => ({ ...preview, index }))}><img src={image.url} alt="" /></button>)}</div></div>}
           </section>
         </div>
       )}
