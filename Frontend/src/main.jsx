@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 import {
   MapContainer as LeafletMapContainer,
   TileLayer,
@@ -32,6 +33,16 @@ import {
 } from "react-icons/fi";
 import "./style.css";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const SIGN_IN_LOADER = "https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json";
+const SESSION_EXPIRED_EVENT = "jockey-session-expired";
+const fetch = async (input, options = {}) => {
+  const response = await window.fetch(input, { ...options, credentials: "include" });
+  const isAuthRequest = String(input).includes("/auth/");
+  if (response.status === 401 && !isAuthRequest) {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+  return response;
+};
 const locationPin = divIcon({
   className: "jockey-map-pin",
   html: "<span>📍</span>",
@@ -63,8 +74,12 @@ function ThemeButton({ theme, setTheme }) {
 }
 function Login({ onLogin, theme, setTheme }) {
   const [e, setE] = useState("");
+  const [loading, setLoading] = useState(false);
   async function submit(x) {
     x.preventDefault();
+    if (loading) return;
+    setE("");
+    setLoading(true);
     try {
       const r = await fetch(`${API_URL}/auth/login`, {
           method: "POST",
@@ -76,10 +91,12 @@ function Login({ onLogin, theme, setTheme }) {
         d = await r.json();
       if (!r.ok) throw Error(d.message);
       localStorage.setItem("jockeyUser", JSON.stringify(d.user));
-      localStorage.setItem("jockeyToken", d.token);
+      localStorage.setItem("jockeySessionExpiresAt", String(d.expiresAt));
       onLogin(d.user);
     } catch (a) {
       setE(a.message);
+    } finally {
+      setLoading(false);
     }
   }
   return (
@@ -112,8 +129,17 @@ function Login({ onLogin, theme, setTheme }) {
             <input name="password" type="password" required />
           </label>
           <p className="error">{e}</p>
-          <button>
-            Sign in <span>→</span>
+          <button className="sign-in-button" disabled={loading} aria-busy={loading}>
+            {loading ? (
+              <>
+                <DotLottieReact className="sign-in-loader" src={SIGN_IN_LOADER} loop autoplay aria-hidden="true" />
+                Signing in…
+              </>
+            ) : (
+              <>
+                Sign in <span>→</span>
+              </>
+            )}
           </button>
         </form>
       </section>
@@ -735,7 +761,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           <FiMenu />
         </button>
         <ThemeButton theme={theme} setTheme={setTheme} />
-        <div className="avatar">{user.name[0]}</div>
+        <div className="avatar" title={user.name}>
+          {user.name[0]}
+        </div>
       </div>
     </header>
   );
@@ -2415,10 +2443,27 @@ function App() {
     return () => document.removeEventListener("click", click);
   }, []);
   const logout = () => {
-    localStorage.clear();
+    window.fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
+    localStorage.removeItem("jockeyUser");
+    localStorage.removeItem("jockeyToken");
+    localStorage.removeItem("jockeySessionExpiresAt");
     setU(null);
     setInventory(false);
   };
+  useEffect(() => {
+    if (!user) return undefined;
+    const expiresAt = Number(localStorage.getItem("jockeySessionExpiresAt"));
+    if (!expiresAt || expiresAt <= Date.now()) {
+      logout();
+      return undefined;
+    }
+    const timer = window.setTimeout(logout, expiresAt - Date.now());
+    window.addEventListener(SESSION_EXPIRED_EVENT, logout);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener(SESSION_EXPIRED_EVENT, logout);
+    };
+  }, [user]);
   return user ? (
     <>
       <Dashboard user={user} onLogout={logout} theme={theme} setTheme={setT} />

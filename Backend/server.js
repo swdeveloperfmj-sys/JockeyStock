@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
@@ -12,6 +14,8 @@ import Product from './models/Product.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
+const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
+const isProduction = process.env.NODE_ENV === 'production';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -105,8 +109,25 @@ const addInheritedProductImages = async (products) => {
   }
 };
 
-app.use(cors());
+app.set('trust proxy', 1);
+app.use(cors({
+  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json({ limit: '2mb' }));
+app.use(session({
+  name: 'jockey.sid',
+  secret: process.env.SESSION_SECRET || 'change-this-development-session-secret',
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI, ttl: sessionMaxAge / 1000 }),
+  cookie: {
+    maxAge: sessionMaxAge,
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction
+  }
+}));
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }));
 
@@ -120,8 +141,32 @@ app.post('/api/auth/login', async (req, res) => {
   const isPasswordValid = user && await bcrypt.compare(password, user.password);
   if (!isPasswordValid) return res.status(401).json({ message: 'Invalid username or password.' });
 
-  return res.json({ token: `demo-token-${user._id}`, user: { id: user._id, name: user.name, username: user.username, email: user.email, role: user.role } });
+  return req.session.regenerate((sessionError) => {
+    if (sessionError) return res.status(500).json({ message: 'Unable to create a login session.' });
+    req.session.userId = user._id.toString();
+    req.session.save((saveError) => {
+      if (saveError) return res.status(500).json({ message: 'Unable to save the login session.' });
+      return res.json({
+        user: { id: user._id, name: user.name, username: user.username, email: user.email, role: user.role },
+        expiresAt: Date.now() + sessionMaxAge
+      });
+    });
+  });
 });
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('jockey.sid');
+    res.status(204).end();
+  });
+});
+
+const requireSession = (req, res, next) => {
+  if (!req.session?.userId) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  next();
+};
+
+app.use('/api', requireSession);
 
 const userFields = ['name', 'username', 'email', 'contactNumber', 'location', 'role'];
 const safeUser = (user) => ({ id: user._id, name: user.name, username: user.username, email: user.email, contactNumber: user.contactNumber, location: user.location, role: user.role });
