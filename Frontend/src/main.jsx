@@ -688,6 +688,20 @@ function RolesPage() {
     </section>
   );
 }
+function SalesOrderPage({ onOrderCreated }) {
+  const [products, setProducts] = useState([]), [cart, setCart] = useState([]), [customerName, setCustomerName] = useState(""), [customerPhone, setCustomerPhone] = useState(""), [productId, setProductId] = useState(""), [quantity, setQuantity] = useState(1), [error, setError] = useState(""), [saving, setSaving] = useState(false);
+  useEffect(() => { fetch(`${API_URL}/products`).then(async (r) => { const d = await r.json(); if (!r.ok) throw Error(d.message); return d; }).then(setProducts).catch((e) => setError(e.message)); }, []);
+  const addItem = () => { const product = products.find((item) => item._id === productId); const qty = Number(quantity); if (!product || !Number.isInteger(qty) || qty < 1) return setError("Select a product and a valid quantity."); const existing = cart.find((item) => item.productId === productId); if ((existing?.quantity || 0) + qty > product.openingStock) return setError(`Only ${product.openingStock} ${product.unit} are available.`); setCart((items) => existing ? items.map((item) => item.productId === productId ? { ...item, quantity: item.quantity + qty } : item) : [...items, { productId, product, quantity: qty }]); setProductId(""); setQuantity(1); setError(""); };
+  const total = cart.reduce((sum, item) => sum + item.quantity * Number(item.product.sellingPrice || 0), 0);
+  async function submit(event) { event.preventDefault(); if (!cart.length) return setError("Add at least one product to the order."); setSaving(true); setError(""); try { const response = await fetch(`${API_URL}/orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerName, customerPhone, items: cart.map((item) => ({ productId: item.productId, quantity: item.quantity })) }) }); const order = await response.json(); if (!response.ok) throw Error(order.message); setCart([]); setCustomerName(""); setCustomerPhone(""); onOrderCreated(order); } catch (requestError) { setError(requestError.message); } finally { setSaving(false); } }
+  return <section className="sales-page"><div className="page-title"><div><p className="eyebrow">SALES</p><h1>Create order</h1><p className="page-description">Create a customer order using available stock.</p></div></div><form className="sales-order-form" onSubmit={submit}><div className="sales-order-card"><h2>Customer details</h2><label>Customer name *<input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required /></label><label>Phone number<input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} /></label><h2>Add product</h2><div className="sales-add-product"><select value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">Select product</option>{products.filter((product) => product.openingStock > 0).map((product) => <option key={product._id} value={product._id}>{product.productName} — {product.openingStock} {product.unit}</option>)}</select><input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} /><button type="button" onClick={addItem}>Add item</button></div></div><div className="sales-order-card"><div className="sales-order-summary"><h2>Order items</h2><strong>LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>{cart.length ? <div className="sales-cart">{cart.map((item) => <article key={item.productId}><div><strong>{item.product.productName}</strong><small>{item.quantity} × LKR {Number(item.product.sellingPrice || 0).toLocaleString()}</small></div><button type="button" className="close-modal" aria-label={`Remove ${item.product.productName}`} onClick={() => setCart((items) => items.filter((cartItem) => cartItem.productId !== item.productId))}><FiX /></button></article>)}</div> : <p className="empty-dashboard-state">No products added to this order.</p>}{error && <p className="error">{error}</p>}<button disabled={saving}>{saving ? "Saving order…" : "Save sales order"}</button></div></form></section>;
+}
+function SalesHistoryPage({ refreshKey }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState("");
+  useEffect(() => { fetch(`${API_URL}/orders`).then(async (r) => { const d = await r.json(); if (!r.ok) throw Error(d.message); return d; }).then(setOrders).catch((e) => setError(e.message)); }, [refreshKey]);
+  const total = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+  return <section className="sales-page"><div className="page-title"><div><p className="eyebrow">SALES</p><h1>My sales</h1><p className="page-description">Completed customer orders and sales totals.</p></div><strong className="sales-total">LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>{error ? <p className="dashboard-error">{error}</p> : orders.length ? <div className="sales-history">{orders.map((order) => <article key={order._id}><div><strong>{order.orderNumber}</strong><span>{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</span><small>{new Date(order.createdAt).toLocaleString()}</small></div><div><span>{order.totalQuantity} items</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div></article>)}</div> : <p className="empty-dashboard-state">No sales orders have been created yet.</p>}</section>;
+}
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
@@ -695,6 +709,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [view, setV] = useState("Dashboard"),
     [dashboardData, setDashboardData] = useState(null),
     [dashboardError, setDashboardError] = useState(""),
+    [salesProducts, setSalesProducts] = useState([]),
+    [salesProductsError, setSalesProductsError] = useState(""),
+    [salesRefreshKey, setSalesRefreshKey] = useState(0),
     admin = user.role === "SUPER_ADMIN";
   const links = admin
     ? [
@@ -721,6 +738,21 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         if (active) setDashboardData(data);
       })
       .catch((error) => active && setDashboardError(error.message));
+    return () => {
+      active = false;
+    };
+  }, [admin, view]);
+  useEffect(() => {
+    if (admin || view !== "Dashboard") return;
+    let active = true;
+    setSalesProductsError("");
+    fetch(`${API_URL}/products`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        if (active) setSalesProducts(data);
+      })
+      .catch((error) => active && setSalesProductsError(error.message));
     return () => {
       active = false;
     };
@@ -753,7 +785,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         <h1>
           {["Users", "Locations", "Roles"].includes(view)
             ? `Manage ${view.toLowerCase()}.`
-            : `Good morning, ${user.name.split(" ")[0]}.`}
+            : view === "Create Order"
+              ? "Create sales order."
+              : view === "Sales"
+                ? "Sales history."
+                : `Good morning, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
       <div className="header-actions">
@@ -823,6 +859,51 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             <p>Create customer orders and keep track of your sales progress.</p>
           )}
         </section>
+        {!admin && view === "Dashboard" && (
+          <section className="sales-product-catalog">
+            <div className="sales-product-catalog-heading">
+              <div>
+                <h2>Available products</h2>
+                <p>Browse product details and available stock.</p>
+              </div>
+              <span>{salesProducts.length} products</span>
+            </div>
+            {salesProductsError ? (
+              <p className="dashboard-error">{salesProductsError}</p>
+            ) : salesProducts.length ? (
+              <div className="sales-product-grid">
+                {salesProducts.map((product) => {
+                  const image = product.images?.[0]?.url || product.imageUrl;
+                  return (
+                    <article className="sales-product-card" key={product._id}>
+                      <div className="sales-product-image">
+                        {image ? (
+                          <img src={image} alt={product.productName || product.name} loading="lazy" />
+                        ) : (
+                          <FiImage aria-label="Product image unavailable" />
+                        )}
+                      </div>
+                      <div className="sales-product-content">
+                        <span className="sales-product-code">{product.productCode || product.sku}</span>
+                        <h3>{product.productName || product.name}</h3>
+                        <div className="sales-product-details">
+                          <span>Category <b>{product.categoryCode || product.category || "—"}</b></span>
+                          <span>Gender <b>{product.gender || "—"}</b></span>
+                          <span>Style <b>{product.style || "—"}</b></span>
+                          <span>Colour <b>{product.color || "—"}</b></span>
+                          <span>Size <b>{product.size || "—"}</b></span>
+                          <span>Stock <b>{formatNumber(product.openingStock)} {product.unit || "Pieces"}</b></span>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="empty-dashboard-state">No products are available yet.</p>
+            )}
+          </section>
+        )}
       </>
     );
   return (

@@ -11,6 +11,7 @@ import User from './models/User.js';
 import Location from './models/Location.js';
 import Role from './models/Role.js';
 import Product from './models/Product.js';
+import Order from './models/Order.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -167,6 +168,74 @@ const requireSession = (req, res, next) => {
 };
 
 app.use('/api', requireSession);
+
+const currentUser = async (req) => User.findById(req.session.userId);
+
+app.get('/api/orders', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  const filter = user.role === 'SUPER_ADMIN' ? {} : { salesRepId: user._id };
+  res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(200));
+});
+
+app.post('/api/orders', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  const { customerName, customerPhone = '', items } = req.body;
+  if (!customerName?.trim() || !Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Customer name and at least one order item are required.' });
+  }
+  if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
+    return res.status(400).json({ message: 'Each order item must have a valid product and quantity.' });
+  }
+
+  const dbSession = await mongoose.startSession();
+  try {
+    let createdOrder;
+    await dbSession.withTransaction(async () => {
+      const requestedItems = await Promise.all(items.map(async (item) => {
+        const product = await Product.findById(item.productId).session(dbSession);
+        if (!product) throw new Error('One of the selected products no longer exists.');
+        const quantity = Number(item.quantity);
+        if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
+        const unitPrice = Number(product.sellingPrice);
+        return {
+          productId: product._id,
+          productCode: product.productCode,
+          productName: product.productName,
+          quantity,
+          unitPrice,
+          total: unitPrice * quantity
+        };
+      }));
+      for (const item of requestedItems) {
+        const result = await Product.updateOne(
+          { _id: item.productId, openingStock: { $gte: item.quantity } },
+          { $inc: { openingStock: -item.quantity } },
+          { session: dbSession }
+        );
+        if (!result.modifiedCount) throw new Error('Product stock changed. Please review the order and try again.');
+      }
+      const totalQuantity = requestedItems.reduce((sum, item) => sum + item.quantity, 0);
+      const totalAmount = requestedItems.reduce((sum, item) => sum + item.total, 0);
+      [createdOrder] = await Order.create([{
+        orderNumber: `SO-${Date.now()}-${Math.floor(Math.random() * 900 + 100)}`,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        salesRepId: user._id,
+        salesRepName: user.name,
+        items: requestedItems,
+        totalQuantity,
+        totalAmount
+      }], { session: dbSession });
+    });
+    res.status(201).json(createdOrder);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to create the sales order.' });
+  } finally {
+    await dbSession.endSession();
+  }
+});
 
 const userFields = ['name', 'username', 'email', 'contactNumber', 'location', 'role'];
 const safeUser = (user) => ({ id: user._id, name: user.name, username: user.username, email: user.email, contactNumber: user.contactNumber, location: user.location, role: user.role });
