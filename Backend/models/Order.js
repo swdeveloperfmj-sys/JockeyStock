@@ -13,6 +13,7 @@ const orderSchema = new mongoose.Schema({
   orderNumber: { type: String, required: true, unique: true, trim: true },
   customerName: { type: String, required: true, trim: true },
   customerPhone: { type: String, trim: true, default: '' },
+  customerAddress: { type: String, required: true, trim: true },
   salesRepId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   salesRepName: { type: String, required: true, trim: true },
   items: { type: [orderItemSchema], validate: [(items) => items.length > 0, 'At least one item is required.'] },

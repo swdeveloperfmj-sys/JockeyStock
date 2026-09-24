@@ -15,6 +15,15 @@ import Order from './models/Order.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
+const stockEventClients = new Set();
+const publishStockUpdate = (products) => {
+  const payload = JSON.stringify(products.map((product) => ({
+    productId: String(product._id),
+    openingStock: product.openingStock,
+    updatedAt: product.updatedAt
+  })));
+  for (const client of stockEventClients) client.write(`event: stock-update\ndata: ${payload}\n\n`);
+};
 const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -171,6 +180,20 @@ app.use('/api', requireSession);
 
 const currentUser = async (req) => User.findById(req.session.userId);
 
+// All signed-in sales screens receive stock changes immediately. The order API
+// still performs the final atomic stock check, which protects against races.
+app.get('/api/stock-events', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive'
+  });
+  res.flushHeaders();
+  res.write(': connected\n\n');
+  stockEventClients.add(res);
+  req.on('close', () => stockEventClients.delete(res));
+});
+
 app.get('/api/orders', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -181,9 +204,9 @@ app.get('/api/orders', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  const { customerName, customerPhone = '', items } = req.body;
-  if (!customerName?.trim() || !Array.isArray(items) || !items.length) {
-    return res.status(400).json({ message: 'Customer name and at least one order item are required.' });
+  const { customerName, customerPhone = '', customerAddress, items } = req.body;
+  if (!customerName?.trim() || !customerAddress?.trim() || !Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Customer name, address, and at least one order item are required.' });
   }
   if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
     return res.status(400).json({ message: 'Each order item must have a valid product and quantity.' });
@@ -198,7 +221,7 @@ app.post('/api/orders', async (req, res) => {
         if (!product) throw new Error('One of the selected products no longer exists.');
         const quantity = Number(item.quantity);
         if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
-        const unitPrice = Number(product.sellingPrice);
+        const unitPrice = Number(product.orderPrice);
         return {
           productId: product._id,
           productCode: product.productCode,
@@ -222,6 +245,7 @@ app.post('/api/orders', async (req, res) => {
         orderNumber: `SO-${Date.now()}-${Math.floor(Math.random() * 900 + 100)}`,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
+        customerAddress: customerAddress.trim(),
         salesRepId: user._id,
         salesRepName: user.name,
         items: requestedItems,
@@ -229,6 +253,10 @@ app.post('/api/orders', async (req, res) => {
         totalAmount
       }], { session: dbSession });
     });
+    const changedProducts = await Product.find({
+      _id: { $in: createdOrder.items.map((item) => item.productId) }
+    }).select('_id openingStock updatedAt');
+    publishStockUpdate(changedProducts);
     res.status(201).json(createdOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to create the sales order.' });
@@ -335,6 +363,7 @@ app.post('/api/products/:id/stock', async (req, res) => {
     { new: true, runValidators: true }
   );
   if (!product) return res.status(404).json({ message: 'Product not found in your factory.' });
+  publishStockUpdate([product]);
   res.json(product);
 });
 app.post('/api/products', async (req, res) => {
