@@ -159,6 +159,21 @@ app.use(async (_req, res, next) => {
   }
 });
 
+app.use(async (_req, res, next) => {
+  try {
+    await connectDatabase();
+    next();
+  } catch (error) {
+    console.error('MongoDB connection failed:', error.message);
+    res.status(503).json({ message: 'Database connection is unavailable. Check MONGODB_URI and MongoDB network access.' });
+  }
+});
+
+app.get('/', (_req, res) => {
+  res.json({ status: 'ok', service: 'Jockey Stock API', health: '/api/health' });
+});
+
+
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }));
 
 app.post('/api/auth/login', async (req, res) => {
