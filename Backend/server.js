@@ -15,6 +15,16 @@ import Order from './models/Order.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
+let databaseConnection;
+const connectDatabase = async () => {
+  if (mongoose.connection.readyState === 1) return mongoose.connection;
+  if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is missing. Add it to your deployment environment variables.');
+  if (!databaseConnection) {
+    databaseConnection = mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
+      .catch((error) => { databaseConnection = undefined; throw error; });
+  }
+  return databaseConnection;
+};
 const stockEventClients = new Set();
 const publishStockUpdate = (products) => {
   const payload = JSON.stringify(products.map((product) => ({
@@ -138,6 +148,16 @@ app.use(session({
     secure: isProduction
   }
 }));
+
+app.use(async (_req, res, next) => {
+  try {
+    await connectDatabase();
+    next();
+  } catch (error) {
+    console.error('MongoDB connection failed:', error.message);
+    res.status(503).json({ message: 'Database connection is unavailable. Check MONGODB_URI and MongoDB network access.' });
+  }
+});
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }));
 
@@ -641,10 +661,7 @@ app.patch('/api/locations/:id', async (req, res) => {
 app.delete('/api/locations/:id', async (req, res) => { const item = await Location.findByIdAndDelete(req.params.id); if (!item) return res.status(404).json({ message: 'Location not found.' }); res.status(204).end(); });
 
 async function startServer() {
-  if (!process.env.MONGODB_URI) {
-    throw new Error('MONGODB_URI is missing. Create Backend/.env from .env.example and add your MongoDB connection string.');
-  }
-  await mongoose.connect(process.env.MONGODB_URI);
+  await connectDatabase();
   console.log('MongoDB connected.');
   await new Promise((resolve, reject) => {
     const server = app.listen(port);
@@ -658,11 +675,15 @@ async function startServer() {
   });
 }
 
-startServer().catch((error) => {
-  if (error.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use. Stop the other backend process or choose a different PORT in Backend/.env.`);
-  } else {
-    console.error('Unable to start server:', error.message);
-  }
-  process.exit(1);
-});
+if (!process.env.VERCEL) {
+  startServer().catch((error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Port ${port} is already in use. Stop the other backend process or choose a different PORT in Backend/.env.`);
+    } else {
+      console.error('Unable to start server:', error.message);
+    }
+    process.exit(1);
+  });
+}
+
+export default app;
