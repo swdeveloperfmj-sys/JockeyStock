@@ -9,9 +9,9 @@
   "theme_color": "#c8102e",
   "icons": [
     {
-      "src": "/icons/jockey-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/jockey-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
