@@ -45,7 +45,13 @@ PWA installation requires the deployed site to use HTTPS. `localhost` also works
 
 Deploy the frontend and backend separately, then connect them using environment variables.
 
-1. Deploy the backend to a Node.js-capable host and set its `MONGODB_URI` environment variable.
+1. Deploy the backend to a Node.js-capable host and set its `MONGODB_URI` environment variable. Also set `FRONTEND_ORIGIN` to the frontend's deployed URL, for example:
+
+```text
+FRONTEND_ORIGIN=https://jockeys.vercel.app
+```
+
+Use comma-separated URLs only when more than one frontend (such as local development and production) needs access.
 2. Deploy the `Frontend` folder to Vercel (Vite preset; build command: `npm run build`; output: `dist`).
 3. In the Vercel frontend project, open **Settings → Environment Variables** and add:
 
