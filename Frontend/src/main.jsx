@@ -33,10 +33,22 @@ import {
 } from "react-icons/fi";
 import "./style.css";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-const SIGN_IN_LOADER = "https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json";
+const SIGN_IN_LOADER =
+  "https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json";
 const SESSION_EXPIRED_EVENT = "jockey-session-expired";
+const ORDER_DRAFT_KEY = "jockey-order-draft";
+const getOrderDraft = () => {
+  try {
+    return JSON.parse(sessionStorage.getItem(ORDER_DRAFT_KEY) || "{}");
+  } catch {
+    return {};
+  }
+};
 const fetch = async (input, options = {}) => {
-  const response = await window.fetch(input, { ...options, credentials: "include" });
+  const response = await window.fetch(input, {
+    ...options,
+    credentials: "include",
+  });
   const isAuthRequest = String(input).includes("/auth/");
   if (response.status === 401 && !isAuthRequest) {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
@@ -129,10 +141,20 @@ function Login({ onLogin, theme, setTheme }) {
             <input name="password" type="password" required />
           </label>
           <p className="error">{e}</p>
-          <button className="sign-in-button" disabled={loading} aria-busy={loading}>
+          <button
+            className="sign-in-button"
+            disabled={loading}
+            aria-busy={loading}
+          >
             {loading ? (
               <>
-                <DotLottieReact className="sign-in-loader" src={SIGN_IN_LOADER} loop autoplay aria-hidden="true" />
+                <DotLottieReact
+                  className="sign-in-loader"
+                  src={SIGN_IN_LOADER}
+                  loop
+                  autoplay
+                  aria-hidden="true"
+                />
                 Signing in…
               </>
             ) : (
@@ -695,52 +717,987 @@ function RolesPage() {
   );
 }
 function SalesOrderPage({ onOrderCreated }) {
-  const [products, setProducts] = useState([]), [cart, setCart] = useState([]), [customerName, setCustomerName] = useState(""), [customerPhone, setCustomerPhone] = useState(""), [productId, setProductId] = useState(""), [quantity, setQuantity] = useState(1), [error, setError] = useState(""), [saving, setSaving] = useState(false);
-  useEffect(() => { fetch(`${API_URL}/products`).then(async (r) => { const d = await r.json(); if (!r.ok) throw Error(d.message); return d; }).then(setProducts).catch((e) => setError(e.message)); }, []);
-  const addItem = () => { const product = products.find((item) => item._id === productId); const qty = Number(quantity); if (!product || !Number.isInteger(qty) || qty < 1) return setError("Select a product and a valid quantity."); const existing = cart.find((item) => item.productId === productId); if ((existing?.quantity || 0) + qty > product.openingStock) return setError(`Only ${product.openingStock} ${product.unit} are available.`); setCart((items) => existing ? items.map((item) => item.productId === productId ? { ...item, quantity: item.quantity + qty } : item) : [...items, { productId, product, quantity: qty }]); setProductId(""); setQuantity(1); setError(""); };
-  const total = cart.reduce((sum, item) => sum + item.quantity * Number(item.product.sellingPrice || 0), 0);
-  async function submit(event) { event.preventDefault(); if (!cart.length) return setError("Add at least one product to the order."); setSaving(true); setError(""); try { const response = await fetch(`${API_URL}/orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerName, customerPhone, items: cart.map((item) => ({ productId: item.productId, quantity: item.quantity })) }) }); const order = await response.json(); if (!response.ok) throw Error(order.message); setCart([]); setCustomerName(""); setCustomerPhone(""); onOrderCreated(order); } catch (requestError) { setError(requestError.message); } finally { setSaving(false); } }
-  return <section className="sales-page"><div className="page-title"><div><p className="eyebrow">SALES</p><h1>Create order</h1><p className="page-description">Create a customer order using available stock.</p></div></div><form className="sales-order-form" onSubmit={submit}><div className="sales-order-card"><h2>Customer details</h2><label>Customer name *<input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required /></label><label>Phone number<input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} /></label><h2>Add product</h2><div className="sales-add-product"><select value={productId} onChange={(e) => setProductId(e.target.value)}><option value="">Select product</option>{products.filter((product) => product.openingStock > 0).map((product) => <option key={product._id} value={product._id}>{product.productName} — {product.openingStock} {product.unit}</option>)}</select><input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)} /><button type="button" onClick={addItem}>Add item</button></div></div><div className="sales-order-card"><div className="sales-order-summary"><h2>Order items</h2><strong>LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>{cart.length ? <div className="sales-cart">{cart.map((item) => <article key={item.productId}><div><strong>{item.product.productName}</strong><small>{item.quantity} × LKR {Number(item.product.sellingPrice || 0).toLocaleString()}</small></div><button type="button" className="close-modal" aria-label={`Remove ${item.product.productName}`} onClick={() => setCart((items) => items.filter((cartItem) => cartItem.productId !== item.productId))}><FiX /></button></article>)}</div> : <p className="empty-dashboard-state">No products added to this order.</p>}{error && <p className="error">{error}</p>}<button disabled={saving}>{saving ? "Saving order…" : "Save sales order"}</button></div></form></section>;
+  const draft = getOrderDraft();
+  const [products, setProducts] = useState([]),
+    [cart, setCart] = useState(() => draft.cart || []),
+    [customerName, setCustomerName] = useState(() => draft.customerName || ""),
+    [customerPhone, setCustomerPhone] = useState(
+      () => draft.customerPhone || "",
+    ),
+    [customerAddress, setCustomerAddress] = useState(
+      () => draft.customerAddress || "",
+    ),
+    [customerLocked, setCustomerLocked] = useState(() =>
+      Boolean(draft.customerLocked),
+    ),
+    [productSearch, setProductSearch] = useState(""),
+    [selectedProduct, setSelectedProduct] = useState(null),
+    [selectedQuantity, setSelectedQuantity] = useState(1),
+    [showOrderItems, setShowOrderItems] = useState(false),
+    [showResetConfirm, setShowResetConfirm] = useState(false),
+    [error, setError] = useState(""),
+    [saving, setSaving] = useState(false);
+  useEffect(() => {
+    sessionStorage.setItem(
+      ORDER_DRAFT_KEY,
+      JSON.stringify({
+        cart,
+        customerName,
+        customerPhone,
+        customerAddress,
+        customerLocked,
+      }),
+    );
+  }, [cart, customerName, customerPhone, customerAddress, customerLocked]);
+  useEffect(() => {
+    fetch(`${API_URL}/products`)
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw Error(d.message);
+        return d;
+      })
+      .then(setProducts)
+      .catch((e) => setError(e.message));
+  }, []);
+  useEffect(() => {
+    const events = new EventSource(`${API_URL}/stock-events`, {
+      withCredentials: true,
+    });
+    events.addEventListener("stock-update", (event) => {
+      const updates = JSON.parse(event.data);
+      const stockById = new Map(
+        updates.map((item) => [item.productId, Number(item.openingStock)]),
+      );
+      setProducts((items) =>
+        items.map((item) =>
+          stockById.has(item._id)
+            ? { ...item, openingStock: stockById.get(item._id) }
+            : item,
+        ),
+      );
+      setCart((items) =>
+        items.flatMap((item) => {
+          const stock = stockById.get(item.productId);
+          if (stock === undefined) return [item];
+          return stock > 0
+            ? [
+                {
+                  ...item,
+                  quantity: Math.min(item.quantity, stock),
+                  product: { ...item.product, openingStock: stock },
+                },
+              ]
+            : [];
+        }),
+      );
+    });
+    return () => events.close();
+  }, []);
+  const addQuantity = (product, delta) => {
+    const current = cart.find((item) => item.productId === product._id);
+    const next = (current?.quantity || 0) + delta;
+    if (next > product.openingStock)
+      return setError(
+        `Only ${product.openingStock} ${product.unit} are available.`,
+      );
+    setCart((items) =>
+      next <= 0
+        ? items.filter((item) => item.productId !== product._id)
+        : current
+          ? items.map((item) =>
+              item.productId === product._id
+                ? { ...item, quantity: next }
+                : item,
+            )
+          : [...items, { productId: product._id, product, quantity: next }],
+    );
+    setError("");
+  };
+  const total = cart.reduce(
+    (sum, item) => sum + item.quantity * Number(item.product.orderPrice || 0),
+    0,
+  );
+  const availableProducts = products.filter(
+    (product) =>
+      product.openingStock > 0 &&
+      [
+        product.productName,
+        product.productCode,
+        product.categoryCode,
+        product.gender,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(productSearch.trim().toLowerCase()),
+  );
+  const openProduct = (product) => {
+    setSelectedProduct(product);
+    setSelectedQuantity(
+      cart.find((item) => item.productId === product._id)?.quantity || 1,
+    );
+  };
+  const addSelectedProduct = () => {
+    const quantity = Number(selectedQuantity);
+    if (!Number.isInteger(quantity) || quantity < 1)
+      return setError("Enter a valid quantity.");
+    if (quantity > selectedProduct.openingStock)
+      return setError(
+        `Only ${selectedProduct.openingStock} ${selectedProduct.unit} are available.`,
+      );
+    setCart((items) =>
+      items.some((item) => item.productId === selectedProduct._id)
+        ? items.map((item) =>
+            item.productId === selectedProduct._id
+              ? { ...item, quantity, product: selectedProduct }
+              : item,
+          )
+        : [
+            ...items,
+            {
+              productId: selectedProduct._id,
+              product: selectedProduct,
+              quantity,
+            },
+          ],
+    );
+    setSelectedProduct(null);
+    setError("");
+  };
+  const lockCustomer = () => {
+    if (!customerName.trim() || !customerAddress.trim())
+      return setError(
+        "Enter the customer name and delivery address before continuing.",
+      );
+    setCustomerLocked(true);
+    setError("");
+  };
+  const resetOrder = () => {
+    setCart([]);
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setCustomerLocked(false);
+    setProductSearch("");
+    setSelectedProduct(null);
+    setShowOrderItems(false);
+    setError("");
+    sessionStorage.removeItem(ORDER_DRAFT_KEY);
+    setShowResetConfirm(false);
+  };
+  async function submit(event) {
+    event.preventDefault();
+    if (!customerLocked)
+      return setError("Lock customer details before saving the order.");
+    if (!cart.length) return setError("Add at least one product to the order.");
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName,
+          customerPhone,
+          customerAddress,
+          items: cart.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+        }),
+      });
+      const order = await response.json();
+      if (!response.ok) throw Error(order.message);
+      setCart([]);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      setCustomerLocked(false);
+      sessionStorage.removeItem(ORDER_DRAFT_KEY);
+      onOrderCreated(order);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <section className="sales-page">
+      <div className="page-title">
+        <div>
+          <p className="eyebrow">SALES</p>
+          <h1>Create order</h1>
+          <p className="page-description">
+            Lock customer details, select products, then save the sales order.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="reset-order-button"
+          onClick={() => setShowResetConfirm(true)}
+        >
+          Reset order
+        </button>
+      </div>
+      <form className="sales-order-form" onSubmit={submit}>
+        <div className="sales-order-main">
+          <section className="sales-order-card customer-card">
+            <div className="sales-order-summary">
+              <h2>Customer details</h2>
+              {customerLocked ? (
+                <button
+                  type="button"
+                  className="edit-customer"
+                  onClick={() => setCustomerLocked(false)}
+                >
+                  Edit
+                </button>
+              ) : null}
+            </div>
+            <div className="customer-fields">
+              <label>
+                Customer name *
+                <input
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  disabled={customerLocked}
+                  required
+                />
+              </label>
+              <label>
+                Phone number
+                <input
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  disabled={customerLocked}
+                />
+              </label>
+              <label className="customer-address">
+                Delivery address *
+                <textarea
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  disabled={customerLocked}
+                  required
+                  rows="3"
+                />
+              </label>
+            </div>
+            {!customerLocked && (
+              <button
+                type="button"
+                className="lock-customer"
+                onClick={lockCustomer}
+              >
+                Lock customer details
+              </button>
+            )}
+          </section>
+          {customerLocked && (
+            <section className="product-picker">
+              <div className="sales-product-catalog-heading">
+                <div>
+                  <h2>Select products</h2>
+                  <p>Click a product card to choose its quantity.</p>
+                </div>
+                <span>{availableProducts.length} available</span>
+              </div>
+              <input
+                className="order-product-filter"
+                value={productSearch}
+                onChange={(event) => setProductSearch(event.target.value)}
+                placeholder="Search by product name, code, category or gender"
+              />
+              <button
+                type="button"
+                className="mobile-check-order-button"
+                disabled={!cart.length}
+                onClick={() => setShowOrderItems(true)}
+              >
+                Check order items ({cart.reduce((sum, item) => sum + item.quantity, 0)})
+              </button>
+              <div className="order-product-grid">
+                {availableProducts.map((product) => {
+                  const item = cart.find(
+                    (cartItem) => cartItem.productId === product._id,
+                  );
+                  const image = product.images?.[0]?.url || product.imageUrl;
+                  return (
+                    <button
+                      type="button"
+                      className={`order-product-card ${item ? "is-added" : ""}`}
+                      key={product._id}
+                      onClick={() => openProduct(product)}
+                    >
+                      <div className="order-product-image">
+                        {image ? <img src={image} alt="" /> : <FiImage />}
+                      </div>
+                      <div className="order-product-content">
+                        <span>{product.productCode}</span>
+                        <h3>{product.productName}</h3>
+                        <small>
+                          In stock: {product.openingStock} {product.unit}
+                        </small>
+                        <strong>
+                          LKR {Number(product.orderPrice || 0).toLocaleString()}
+                        </strong>
+                        {item && <em>{item.quantity} in order</em>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {!availableProducts.length && (
+                <p className="empty-dashboard-state">
+                  No matching products found.
+                </p>
+              )}
+            </section>
+          )}
+        </div>
+        <aside className="sales-order-card order-summary-card">
+          <div className="sales-order-summary">
+            <div>
+              <h2>Order items</h2>
+              <small>
+                {cart.reduce((sum, item) => sum + item.quantity, 0)} items
+                selected
+              </small>
+            </div>
+            <strong>
+              LKR{" "}
+              {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </strong>
+          </div>
+          {cart.length ? (
+            <div className="sales-cart">
+              <table className="order-items-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Qty</th>
+                    <th>Total</th>
+                    <th aria-label="Remove" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map((item) => (
+                    <tr key={item.productId}>
+                      <td>
+                        <strong>{item.product.productName}</strong>
+                        <small>
+                          LKR{" "}
+                          {Number(
+                            item.product.orderPrice || 0,
+                          ).toLocaleString()}{" "}
+                          each
+                        </small>
+                      </td>
+                      <td>{item.quantity}</td>
+                      <td>
+                        LKR{" "}
+                        {(
+                          item.quantity * Number(item.product.orderPrice || 0)
+                        ).toLocaleString()}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="remove-order-item"
+                          onClick={() =>
+                            addQuantity(item.product, -item.quantity)
+                          }
+                          aria-label={`Remove ${item.product.productName}`}
+                        >
+                          <FiX />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="empty-dashboard-state">
+              {customerLocked
+                ? "No products added to this order."
+                : "Lock customer details to select products."}
+            </p>
+          )}
+          <button
+            type="button"
+            className="check-order-button"
+            disabled={!customerLocked || !cart.length}
+            onClick={() => setShowOrderItems(true)}
+          >
+            Check order items
+          </button>
+          {error && <p className="error">{error}</p>}
+          <button
+            className="inline-save-order"
+            disabled={saving || !customerLocked || !cart.length}
+          >
+            {saving ? "Saving order…" : "Save sales order"}
+          </button>
+        </aside>
+      </form>
+      {showOrderItems && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={() => setShowOrderItems(false)}
+        >
+          <section
+            className="order-items-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-title">
+              <div>
+                <p className="eyebrow">ORDER REVIEW</p>
+                <h2>Order items</h2>
+              </div>
+              <button
+                type="button"
+                className="close-modal"
+                onClick={() => setShowOrderItems(false)}
+                aria-label="Close"
+              >
+                <FiX />
+              </button>
+            </div>
+            <div className="sales-cart">
+              <table className="order-items-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Qty</th>
+                    <th>Total</th>
+                    <th aria-label="Remove" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map((item) => (
+                    <tr key={item.productId}>
+                      <td>
+                        <strong>{item.product.productName}</strong>
+                        <small>
+                          LKR{" "}
+                          {Number(
+                            item.product.orderPrice || 0,
+                          ).toLocaleString()}{" "}
+                          each
+                        </small>
+                      </td>
+                      <td>{item.quantity}</td>
+                      <td>
+                        LKR{" "}
+                        {(
+                          item.quantity * Number(item.product.orderPrice || 0)
+                        ).toLocaleString()}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="remove-order-item"
+                          onClick={() =>
+                            addQuantity(item.product, -item.quantity)
+                          }
+                          aria-label={`Remove ${item.product.productName}`}
+                        >
+                          <FiX />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="order-review-total">
+              <span>
+                {cart.reduce((sum, item) => sum + item.quantity, 0)} items
+              </span>
+              <strong>
+                LKR{" "}
+                {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </strong>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <button
+              type="button"
+              className="save-order-button"
+              disabled={saving || !cart.length}
+              onClick={submit}
+            >
+              {saving ? "Saving order…" : "Save sales order"}
+            </button>
+          </section>
+        </div>
+      )}
+      {showResetConfirm && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={() => setShowResetConfirm(false)}
+        >
+          <section
+            className="confirm-modal reset-order-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <p className="eyebrow">RESET ORDER</p>
+            <h2>Clear this order draft?</h2>
+            <p>Customer details and all selected products will be removed.</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="cancel-button"
+                onClick={() => setShowResetConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-button"
+                onClick={resetOrder}
+              >
+                Reset order
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {selectedProduct && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={() => setSelectedProduct(null)}
+        >
+          <section
+            className="product-quantity-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="close-modal"
+              onClick={() => setSelectedProduct(null)}
+              aria-label="Close"
+            >
+              <FiX />
+            </button>
+            <p className="eyebrow">ADD TO ORDER</p>
+            <h2>{selectedProduct.productName}</h2>
+            <p>
+              Available stock: {selectedProduct.openingStock}{" "}
+              {selectedProduct.unit}
+            </p>
+            <label>
+              Quantity
+              <input
+                autoFocus
+                type="number"
+                min="1"
+                max={selectedProduct.openingStock}
+                value={selectedQuantity}
+                onChange={(event) => setSelectedQuantity(event.target.value)}
+              />
+            </label>
+            <button type="button" onClick={addSelectedProduct}>
+              Add to order
+            </button>
+          </section>
+        </div>
+      )}
+    </section>
+  );
 }
 function SalesHistoryPage({ refreshKey }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState("");
-  useEffect(() => { fetch(`${API_URL}/orders`).then(async (r) => { const d = await r.json(); if (!r.ok) throw Error(d.message); return d; }).then(setOrders).catch((e) => setError(e.message)); }, [refreshKey]);
-  const total = orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
-  return <section className="sales-page"><div className="page-title"><div><p className="eyebrow">SALES</p><h1>My sales</h1><p className="page-description">Completed customer orders and sales totals.</p></div><strong className="sales-total">LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>{error ? <p className="dashboard-error">{error}</p> : orders.length ? <div className="sales-history">{orders.map((order) => <article key={order._id}><div><strong>{order.orderNumber}</strong><span>{order.customerName}{order.customerPhone ? ` · ${order.customerPhone}` : ""}</span><small>{new Date(order.createdAt).toLocaleString()}</small></div><div><span>{order.totalQuantity} items</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div></article>)}</div> : <p className="empty-dashboard-state">No sales orders have been created yet.</p>}</section>;
+  const [orders, setOrders] = useState([]),
+    [error, setError] = useState(""),
+    [monthFilter, setMonthFilter] = useState(""),
+    [dateFilter, setDateFilter] = useState(""),
+    [selectedOrder, setSelectedOrder] = useState(null);
+  useEffect(() => {
+    fetch(`${API_URL}/orders`)
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw Error(d.message);
+        return d;
+      })
+      .then(setOrders)
+      .catch((e) => setError(e.message));
+  }, [refreshKey]);
+  const filteredOrders = orders.filter((order) => {
+    const orderDate = new Date(order.createdAt);
+    const localDate = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, "0")}-${String(orderDate.getDate()).padStart(2, "0")}`;
+    return (
+      (!monthFilter || localDate.startsWith(monthFilter)) &&
+      (!dateFilter || localDate === dateFilter)
+    );
+  });
+  const total = filteredOrders.reduce(
+    (sum, order) => sum + Number(order.totalAmount || 0),
+    0,
+  );
+  return (
+    <section className="sales-page">
+      <div className="page-title">
+        <div>
+          <p className="eyebrow">SALES</p>
+          <h1>My sales</h1>
+          <p className="page-description">
+            Completed customer orders and sales totals.
+          </p>
+        </div>
+        <strong className="sales-total">
+          LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        </strong>
+      </div>
+      <div className="sales-history-filters">
+        <label>
+          Month
+          <input
+            type="month"
+            value={monthFilter}
+            onChange={(event) => {
+              setMonthFilter(event.target.value);
+              setDateFilter("");
+            }}
+          />
+        </label>
+        <label>
+          Date
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(event) => setDateFilter(event.target.value)}
+          />
+        </label>
+        {(monthFilter || dateFilter) && (
+          <button
+            type="button"
+            className="clear-sales-filter"
+            onClick={() => {
+              setMonthFilter("");
+              setDateFilter("");
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+      {error ? (
+        <p className="dashboard-error">{error}</p>
+      ) : filteredOrders.length ? (
+        <div className="sales-history">
+          {filteredOrders.map((order) => (
+            <article
+              key={order._id}
+              className="sales-history-card"
+              onClick={() => setSelectedOrder(order)}
+              role="button"
+              tabIndex="0"
+              onKeyDown={(event) =>
+                event.key === "Enter" && setSelectedOrder(order)
+              }
+            >
+              <div>
+                <strong>{order.orderNumber}</strong>
+                <span>
+                  {order.customerName}
+                  {order.customerPhone ? ` · ${order.customerPhone}` : ""}
+                </span>
+                <small>{new Date(order.createdAt).toLocaleString()}</small>
+              </div>
+              <div>
+                <span>{order.totalQuantity} items</span>
+                <strong>
+                  LKR{" "}
+                  {Number(order.totalAmount).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                  })}
+                </strong>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-dashboard-state">
+          No sales orders match the selected filter.
+        </p>
+      )}
+      {selectedOrder && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={() => setSelectedOrder(null)}
+        >
+          <section
+            className="order-details-modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-title">
+              <div>
+                <p className="eyebrow">SALES ORDER</p>
+                <h2>{selectedOrder.orderNumber}</h2>
+              </div>
+              <button
+                type="button"
+                className="close-modal"
+                onClick={() => setSelectedOrder(null)}
+                aria-label="Close"
+              >
+                <FiX />
+              </button>
+            </div>
+            <div className="order-detail-customer">
+              <div>
+                <small>Customer</small>
+                <strong>{selectedOrder.customerName}</strong>
+                {selectedOrder.customerPhone && (
+                  <span>{selectedOrder.customerPhone}</span>
+                )}
+              </div>
+              <div>
+                <small>Delivery address</small>
+                <strong>
+                  {selectedOrder.customerAddress || "Not recorded"}
+                </strong>
+              </div>
+              <div>
+                <small>Created</small>
+                <strong>
+                  {new Date(selectedOrder.createdAt).toLocaleString()}
+                </strong>
+              </div>
+            </div>
+            <div className="sales-cart">
+              <table className="order-items-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Qty</th>
+                    <th>Unit price</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedOrder.items.map((item) => (
+                    <tr key={item.productId}>
+                      <td>
+                        <strong>{item.productName}</strong>
+                        <small>{item.productCode}</small>
+                      </td>
+                      <td>{item.quantity}</td>
+                      <td>LKR {Number(item.unitPrice).toLocaleString()}</td>
+                      <td>LKR {Number(item.total).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="order-review-total">
+              <span>{selectedOrder.totalQuantity} items</span>
+              <strong>
+                LKR{" "}
+                {Number(selectedOrder.totalAmount).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                })}
+              </strong>
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
+  );
 }
 function StockUpdatePage() {
-  const [products, setProducts] = useState([]), [selectedProduct, setSelectedProduct] = useState(null), [quantity, setQuantity] = useState(""), [error, setError] = useState(""), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
+  const [products, setProducts] = useState([]),
+    [selectedProduct, setSelectedProduct] = useState(null),
+    [quantity, setQuantity] = useState(""),
+    [error, setError] = useState(""),
+    [message, setMessage] = useState(""),
+    [saving, setSaving] = useState(false);
   const load = async () => {
     try {
       const response = await fetch(`${API_URL}/products`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
       setProducts(data);
-    } catch (requestError) { setError(requestError.message); }
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
   const submit = async (event) => {
     event.preventDefault();
-    setError(""); setMessage("");
+    setError("");
+    setMessage("");
     if (!selectedProduct) return;
-    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) return setError("Enter a whole quantity of at least 1.");
+    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1)
+      return setError("Enter a whole quantity of at least 1.");
     setSaving(true);
     try {
-      const response = await fetch(`${API_URL}/products/${selectedProduct._id}/stock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quantity: Number(quantity) }) });
+      const response = await fetch(
+        `${API_URL}/products/${selectedProduct._id}/stock`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quantity: Number(quantity) }),
+        },
+      );
       const updated = await response.json();
       if (!response.ok) throw new Error(updated.message);
-      setProducts((items) => items.map((product) => product._id === updated._id ? updated : product));
-      setMessage(`${updated.productName || updated.name} stock is now ${Number(updated.openingStock).toLocaleString()} ${updated.unit || "Pieces"}.`);
+      setProducts((items) =>
+        items.map((product) =>
+          product._id === updated._id ? updated : product,
+        ),
+      );
+      setMessage(
+        `${updated.productName || updated.name} stock is now ${Number(updated.openingStock).toLocaleString()} ${updated.unit || "Pieces"}.`,
+      );
       setQuantity("");
       setSelectedProduct(null);
-    } catch (requestError) { setError(requestError.message); }
-    finally { setSaving(false); }
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
   };
-  return <section className="stock-update-page"><div className="page-title"><div><p className="eyebrow">FACTORY INVENTORY</p><h1>Update stock</h1><p className="page-description">Double-click a product card to add received stock.</p></div></div>{error && <p className="dashboard-error">{error}</p>}{message && <p className="stock-update-success">{message}</p>}<div className="factory-product-grid">{products.map((product) => { const image = product.images?.[0]?.url || product.imageUrl; return <article className="factory-product-card" key={product._id} onDoubleClick={() => { setSelectedProduct(product); setQuantity(""); setError(""); }} title="Double-click to update stock"><div className="factory-product-image">{image ? <img src={image} alt={product.productName || product.name} loading="lazy" /> : <FiImage aria-label="Product image unavailable" />}</div><div className="factory-product-content"><span>{product.productCode || product.sku}</span><h2>{product.productName || product.name}</h2><div><small>Category</small><b>{product.categoryCode || product.category || "—"}</b><small>Gender</small><b>{product.gender || "—"}</b><small>Style</small><b>{product.style || "—"}</b><small>Colour / Size</small><b>{product.color || "—"} / {product.size || "—"}</b></div><strong className="factory-stock">{Number(product.openingStock).toLocaleString()} <small>{product.unit || "Pieces"}</small></strong></div></article>; })}</div>{selectedProduct && <div className="modal-backdrop" onClick={() => setSelectedProduct(null)}><section className="stock-update-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><div className="modal-title"><div><p className="eyebrow">STOCK UPDATE</p><h2>{selectedProduct.productName || selectedProduct.name}</h2><p className="stock-update-current">Current stock: <strong>{Number(selectedProduct.openingStock).toLocaleString()} {selectedProduct.unit || "Pieces"}</strong></p></div><button type="button" className="close-modal" onClick={() => setSelectedProduct(null)}><FiX /></button></div><form onSubmit={submit}><label>Quantity to add<input autoFocus type="number" min="1" step="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" required /></label><div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setSelectedProduct(null)}>Cancel</button><button disabled={saving}>{saving ? "Updating…" : "Add stock"}</button></div></form></section></div>}</section>;
+  return (
+    <section className="stock-update-page">
+      <div className="page-title">
+        <div>
+          <p className="eyebrow">FACTORY INVENTORY</p>
+          <h1>Update stock</h1>
+          <p className="page-description">
+            Double-click a product card to add received stock.
+          </p>
+        </div>
+      </div>
+      {error && <p className="dashboard-error">{error}</p>}
+      {message && <p className="stock-update-success">{message}</p>}
+      <div className="factory-product-grid">
+        {products.map((product) => {
+          const image = product.images?.[0]?.url || product.imageUrl;
+          return (
+            <article
+              className="factory-product-card"
+              key={product._id}
+              onDoubleClick={() => {
+                setSelectedProduct(product);
+                setQuantity("");
+                setError("");
+              }}
+              title="Double-click to update stock"
+            >
+              <div className="factory-product-image">
+                {image ? (
+                  <img
+                    src={image}
+                    alt={product.productName || product.name}
+                    loading="lazy"
+                  />
+                ) : (
+                  <FiImage aria-label="Product image unavailable" />
+                )}
+              </div>
+              <div className="factory-product-content">
+                <span>{product.productCode || product.sku}</span>
+                <h2>{product.productName || product.name}</h2>
+                <div>
+                  <small>Category</small>
+                  <b>{product.categoryCode || product.category || "—"}</b>
+                  <small>Gender</small>
+                  <b>{product.gender || "—"}</b>
+                  <small>Style</small>
+                  <b>{product.style || "—"}</b>
+                  <small>Colour / Size</small>
+                  <b>
+                    {product.color || "—"} / {product.size || "—"}
+                  </b>
+                </div>
+                <strong className="factory-stock">
+                  {Number(product.openingStock).toLocaleString()}{" "}
+                  <small>{product.unit || "Pieces"}</small>
+                </strong>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {selectedProduct && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setSelectedProduct(null)}
+        >
+          <section
+            className="stock-update-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-title">
+              <div>
+                <p className="eyebrow">STOCK UPDATE</p>
+                <h2>{selectedProduct.productName || selectedProduct.name}</h2>
+                <p className="stock-update-current">
+                  Current stock:{" "}
+                  <strong>
+                    {Number(selectedProduct.openingStock).toLocaleString()}{" "}
+                    {selectedProduct.unit || "Pieces"}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                className="close-modal"
+                onClick={() => setSelectedProduct(null)}
+              >
+                <FiX />
+              </button>
+            </div>
+            <form onSubmit={submit}>
+              <label>
+                Quantity to add
+                <input
+                  autoFocus
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={quantity}
+                  onChange={(event) => setQuantity(event.target.value)}
+                  placeholder="0"
+                  required
+                />
+              </label>
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="cancel-button"
+                  onClick={() => setSelectedProduct(null)}
+                >
+                  Cancel
+                </button>
+                <button disabled={saving}>
+                  {saving ? "Updating…" : "Add stock"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+    </section>
+  );
 }
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
+    [headerHidden, setHeaderHidden] = useState(false),
     [confirm, setConfirm] = useState(false),
     [view, setV] = useState("Dashboard"),
     [dashboardData, setDashboardData] = useState(null),
@@ -750,7 +1707,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [salesOrders, setSalesOrders] = useState([]),
     [salesOrdersError, setSalesOrdersError] = useState(""),
     [orderRefreshKey, setOrderRefreshKey] = useState(0),
-    [salesProductFilters, setSalesProductFilters] = useState({ search: "", category: "", gender: "" }),
+    [salesProductFilters, setSalesProductFilters] = useState({
+      search: "",
+      category: "",
+      gender: "",
+    }),
     [salesImagePreview, setSalesImagePreview] = useState(null),
     admin = user.role === "SUPER_ADMIN",
     locationManager = user.role === "LOCATION_MANAGER";
@@ -763,14 +1724,33 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiBox, "Locations"],
         [FiUsers, "Roles"],
       ]
-    : locationManager ? [
-        [FiBarChart2, "Dashboard"],
-        [FiBox, "Stock Update"],
-      ] : [
-        [FiBarChart2, "Dashboard"],
-        [FiPlusCircle, "Create Order"],
-        [FiFileText, "Sales"],
-      ];
+    : locationManager
+      ? [
+          [FiBarChart2, "Dashboard"],
+          [FiBox, "Stock Update"],
+        ]
+      : [
+          [FiBarChart2, "Dashboard"],
+          [FiPlusCircle, "Create Order"],
+          [FiFileText, "Sales"],
+        ];
+  useEffect(() => {
+    let lastY = window.scrollY;
+    const updateHeader = () => {
+      if (window.innerWidth > 760) return setHeaderHidden(false);
+      const currentY = window.scrollY;
+      if (currentY < 24) setHeaderHidden(false);
+      else if (currentY > lastY + 8) setHeaderHidden(true);
+      else if (currentY < lastY - 8) setHeaderHidden(false);
+      lastY = currentY;
+    };
+    window.addEventListener("scroll", updateHeader, { passive: true });
+    window.addEventListener("resize", updateHeader);
+    return () => {
+      window.removeEventListener("scroll", updateHeader);
+      window.removeEventListener("resize", updateHeader);
+    };
+  }, []);
   useEffect(() => {
     if (!admin || view !== "Dashboard") return;
     let active = true;
@@ -786,9 +1766,21 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       active = false;
     };
   }, [admin, view]);
-  const catalogProducts = locationManager ? salesProducts : salesProducts.filter((product) => Number(product.openingStock || 0) > 0);
-  const salesCategories = [...new Set(catalogProducts.map((product) => product.categoryCode || product.category).filter(Boolean))].sort();
-  const salesGenders = [...new Set(catalogProducts.map((product) => product.gender).filter(Boolean))].sort();
+  const catalogProducts = locationManager
+    ? salesProducts
+    : salesProducts.filter((product) => Number(product.openingStock || 0) > 0);
+  const salesCategories = [
+    ...new Set(
+      catalogProducts
+        .map((product) => product.categoryCode || product.category)
+        .filter(Boolean),
+    ),
+  ].sort();
+  const salesGenders = [
+    ...new Set(
+      catalogProducts.map((product) => product.gender).filter(Boolean),
+    ),
+  ].sort();
   const filteredSalesProducts = catalogProducts.filter((product) => {
     const search = salesProductFilters.search.trim().toLowerCase();
     const searchable = [
@@ -801,11 +1793,17 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       product.size,
       product.categoryCode,
       product.category,
-    ].filter(Boolean).join(" ").toLowerCase();
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
     return (
       (!search || searchable.includes(search)) &&
-      (!salesProductFilters.category || (product.categoryCode || product.category) === salesProductFilters.category) &&
-      (!salesProductFilters.gender || product.gender === salesProductFilters.gender)
+      (!salesProductFilters.category ||
+        (product.categoryCode || product.category) ===
+          salesProductFilters.category) &&
+      (!salesProductFilters.gender ||
+        product.gender === salesProductFilters.gender)
     );
   });
   useEffect(() => {
@@ -860,36 +1858,65 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   const today = new Date();
   const isToday = (date) => {
     const value = new Date(date);
-    return value.getFullYear() === today.getFullYear() && value.getMonth() === today.getMonth() && value.getDate() === today.getDate();
+    return (
+      value.getFullYear() === today.getFullYear() &&
+      value.getMonth() === today.getMonth() &&
+      value.getDate() === today.getDate()
+    );
   };
   const todaysOrders = salesOrders.filter((order) => isToday(order.createdAt));
-  const todaysSales = todaysOrders.reduce((total, order) => total + Number(order.totalAmount || 0), 0);
+  const todaysSales = todaysOrders.reduce(
+    (total, order) => total + Number(order.totalAmount || 0),
+    0,
+  );
   const salesStats = [
-    ["Sales Today", `LKR ${todaysSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`],
+    [
+      "Sales Today",
+      `LKR ${todaysSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    ],
     ["Orders Today", formatNumber(todaysOrders.length)],
     ["Available Products", formatNumber(catalogProducts.length)],
   ];
   const locationManagerStats = [
     ["Factory Products", formatNumber(salesProducts.length)],
-    ["Total Factory Stock", formatNumber(salesProducts.reduce((total, product) => total + Number(product.openingStock || 0), 0))],
-    ["Out of Stock", formatNumber(salesProducts.filter((product) => Number(product.openingStock || 0) === 0).length)],
+    [
+      "Total Factory Stock",
+      formatNumber(
+        salesProducts.reduce(
+          (total, product) => total + Number(product.openingStock || 0),
+          0,
+        ),
+      ),
+    ],
+    [
+      "Out of Stock",
+      formatNumber(
+        salesProducts.filter(
+          (product) => Number(product.openingStock || 0) === 0,
+        ).length,
+      ),
+    ],
   ];
   const header = (
-    <header>
+    <header className={`dashboard-header ${headerHidden ? "is-hidden" : ""}`}>
       <div>
         <p className="eyebrow">
-          {admin ? "SUPER ADMIN" : locationManager ? "LOCATION MANAGER" : "SALES REPRESENTATIVE"}
+          {admin
+            ? "SUPER ADMIN"
+            : locationManager
+              ? "LOCATION MANAGER"
+              : "SALES REPRESENTATIVE"}
         </p>
         <h1>
           {["Users", "Locations", "Roles"].includes(view)
             ? `Manage ${view.toLowerCase()}.`
             : view === "Stock Update"
               ? "Update factory stock."
-            : view === "Create Order"
-              ? "Create sales order."
-              : view === "Sales"
-                ? "Sales history."
-                : `Good morning, ${user.name.split(" ")[0]}.`}
+              : view === "Create Order"
+                ? "Create sales order."
+                : view === "Sales"
+                  ? "Sales history."
+                  : `Good morning, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
       <div className="header-actions">
@@ -903,7 +1930,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       </div>
     </header>
   );
-  const displayedStats = admin ? liveAdminStats : locationManager ? locationManagerStats : salesStats;
+  const displayedStats = admin
+    ? liveAdminStats
+    : locationManager
+      ? locationManagerStats
+      : salesStats;
   const content =
     view === "Users" ? (
       <UsersPage />
@@ -914,7 +1945,12 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : view === "Stock Update" && locationManager ? (
       <StockUpdatePage />
     ) : view === "Create Order" && !admin && !locationManager ? (
-      <SalesOrderPage onOrderCreated={() => { setOrderRefreshKey((key) => key + 1); setV("Sales"); }} />
+      <SalesOrderPage
+        onOrderCreated={() => {
+          setOrderRefreshKey((key) => key + 1);
+          setV("Sales");
+        }}
+      />
     ) : view === "Sales" && !admin && !locationManager ? (
       <SalesHistoryPage refreshKey={orderRefreshKey} />
     ) : (
@@ -935,34 +1971,69 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           <section className="sales-product-catalog">
             <div className="sales-product-catalog-heading">
               <div>
-                <h2>{locationManager ? "Factory products" : "Available products"}</h2>
-                <p>{locationManager ? `Products assigned to ${user.location}.` : "Browse product details and available stock."}</p>
+                <h2>
+                  {locationManager ? "Factory products" : "Available products"}
+                </h2>
+                <p>
+                  {locationManager
+                    ? `Products assigned to ${user.location}.`
+                    : "Browse product details and available stock."}
+                </p>
               </div>
-              <span>{filteredSalesProducts.length} of {catalogProducts.length} products</span>
+              <span>
+                {filteredSalesProducts.length} of {catalogProducts.length}{" "}
+                products
+              </span>
             </div>
-            <div className="sales-product-filters" aria-label="Filter available products">
+            <div
+              className="sales-product-filters"
+              aria-label="Filter available products"
+            >
               <input
                 type="search"
                 value={salesProductFilters.search}
-                onChange={(event) => setSalesProductFilters((filters) => ({ ...filters, search: event.target.value }))}
+                onChange={(event) =>
+                  setSalesProductFilters((filters) => ({
+                    ...filters,
+                    search: event.target.value,
+                  }))
+                }
                 placeholder="Search name, code, style, colour..."
                 aria-label="Search available products"
               />
               <select
                 value={salesProductFilters.category}
-                onChange={(event) => setSalesProductFilters((filters) => ({ ...filters, category: event.target.value }))}
+                onChange={(event) =>
+                  setSalesProductFilters((filters) => ({
+                    ...filters,
+                    category: event.target.value,
+                  }))
+                }
                 aria-label="Filter by category"
               >
                 <option value="">All categories</option>
-                {salesCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                {salesCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
               </select>
               <select
                 value={salesProductFilters.gender}
-                onChange={(event) => setSalesProductFilters((filters) => ({ ...filters, gender: event.target.value }))}
+                onChange={(event) =>
+                  setSalesProductFilters((filters) => ({
+                    ...filters,
+                    gender: event.target.value,
+                  }))
+                }
                 aria-label="Filter by gender"
               >
                 <option value="">All genders</option>
-                {salesGenders.map((gender) => <option key={gender} value={gender}>{gender}</option>)}
+                {salesGenders.map((gender) => (
+                  <option key={gender} value={gender}>
+                    {gender}
+                  </option>
+                ))}
               </select>
             </div>
             {salesProductsError ? (
@@ -970,9 +2041,12 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             ) : filteredSalesProducts.length ? (
               <div className="sales-product-grid">
                 {filteredSalesProducts.map((product) => {
-                  const images = Array.isArray(product.images) && product.images.length
-                    ? product.images
-                    : product.imageUrl ? [{ _id: "legacy", url: product.imageUrl }] : [];
+                  const images =
+                    Array.isArray(product.images) && product.images.length
+                      ? product.images
+                      : product.imageUrl
+                        ? [{ _id: "legacy", url: product.imageUrl }]
+                        : [];
                   const image = images[0]?.url;
                   return (
                     <article className="sales-product-card" key={product._id}>
@@ -980,26 +2054,61 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                         type="button"
                         className={`sales-product-image${image ? " is-viewable" : ""}`}
                         disabled={!image}
-                        onClick={() => setSalesImagePreview({ images, index: 0, name: product.productName || product.name })}
+                        onClick={() =>
+                          setSalesImagePreview({
+                            images,
+                            index: 0,
+                            name: product.productName || product.name,
+                          })
+                        }
                         aria-label={`View images for ${product.productName || product.name}`}
                       >
                         {image ? (
-                          <img src={image} alt={product.productName || product.name} loading="lazy" />
+                          <img
+                            src={image}
+                            alt={product.productName || product.name}
+                            loading="lazy"
+                          />
                         ) : (
                           <FiImage aria-label="Product image unavailable" />
                         )}
-                        {images.length > 1 && <span className="sales-product-image-count">{images.length} images</span>}
+                        {images.length > 1 && (
+                          <span className="sales-product-image-count">
+                            {images.length} images
+                          </span>
+                        )}
                       </button>
                       <div className="sales-product-content">
-                        <span className="sales-product-code">{product.productCode || product.sku}</span>
+                        <span className="sales-product-code">
+                          {product.productCode || product.sku}
+                        </span>
                         <h3>{product.productName || product.name}</h3>
                         <div className="sales-product-details">
-                          <span>Category <b>{product.categoryCode || product.category || "—"}</b></span>
-                          <span>Gender <b>{product.gender || "—"}</b></span>
-                          <span>Style <b>{product.style || "—"}</b></span>
-                          <span>Colour <b>{product.color || "—"}</b></span>
-                          <span>Size <b>{product.size || "—"}</b></span>
-                          <span>Stock <b>{formatNumber(product.openingStock)} {product.unit || "Pieces"}</b></span>
+                          <span>
+                            Category{" "}
+                            <b>
+                              {product.categoryCode || product.category || "—"}
+                            </b>
+                          </span>
+                          <span>
+                            Gender <b>{product.gender || "—"}</b>
+                          </span>
+                          <span>
+                            Style <b>{product.style || "—"}</b>
+                          </span>
+                          <span>
+                            Colour <b>{product.color || "—"}</b>
+                          </span>
+                          <span>
+                            Size <b>{product.size || "—"}</b>
+                          </span>
+                          <span>
+                            Stock{" "}
+                            <b>
+                              {formatNumber(product.openingStock)}{" "}
+                              {product.unit || "Pieces"}
+                            </b>
+                          </span>
                         </div>
                       </div>
                     </article>
@@ -1007,7 +2116,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 })}
               </div>
             ) : (
-              <p className="empty-dashboard-state">{catalogProducts.length ? "No products match the selected filters." : "No products are available yet."}</p>
+              <p className="empty-dashboard-state">
+                {catalogProducts.length
+                  ? "No products match the selected filters."
+                  : "No products are available yet."}
+              </p>
             )}
           </section>
         )}
@@ -1039,22 +2152,97 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         </div>
       )}
       {salesImagePreview && (
-        <div className="modal-backdrop sales-image-preview-backdrop" onClick={() => setSalesImagePreview(null)}>
-          <section className="sales-image-preview-modal" role="dialog" aria-modal="true" aria-label={`${salesImagePreview.name} images`} onClick={(event) => event.stopPropagation()}>
+        <div
+          className="modal-backdrop sales-image-preview-backdrop"
+          onClick={() => setSalesImagePreview(null)}
+        >
+          <section
+            className="sales-image-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${salesImagePreview.name} images`}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="product-image-preview-header">
               <div>
                 <p className="eyebrow">PRODUCT IMAGES</p>
                 <h2>{salesImagePreview.name}</h2>
-                <p className="product-gallery-count">Image {salesImagePreview.index + 1} of {salesImagePreview.images.length}</p>
+                <p className="product-gallery-count">
+                  Image {salesImagePreview.index + 1} of{" "}
+                  {salesImagePreview.images.length}
+                </p>
               </div>
-              <button type="button" className="close-modal" aria-label="Close image preview" onClick={() => setSalesImagePreview(null)}><FiX /></button>
+              <button
+                type="button"
+                className="close-modal"
+                aria-label="Close image preview"
+                onClick={() => setSalesImagePreview(null)}
+              >
+                <FiX />
+              </button>
             </div>
             <div className="product-image-preview-canvas">
-              {salesImagePreview.images.length > 1 && <button type="button" className="gallery-arrow previous" aria-label="Previous image" onClick={() => setSalesImagePreview((preview) => ({ ...preview, index: (preview.index - 1 + preview.images.length) % preview.images.length }))}><FiChevronLeft /></button>}
-              <img src={salesImagePreview.images[salesImagePreview.index].url} alt={`${salesImagePreview.name} ${salesImagePreview.index + 1}`} />
-              {salesImagePreview.images.length > 1 && <button type="button" className="gallery-arrow next" aria-label="Next image" onClick={() => setSalesImagePreview((preview) => ({ ...preview, index: (preview.index + 1) % preview.images.length }))}><FiChevronRight /></button>}
+              {salesImagePreview.images.length > 1 && (
+                <button
+                  type="button"
+                  className="gallery-arrow previous"
+                  aria-label="Previous image"
+                  onClick={() =>
+                    setSalesImagePreview((preview) => ({
+                      ...preview,
+                      index:
+                        (preview.index - 1 + preview.images.length) %
+                        preview.images.length,
+                    }))
+                  }
+                >
+                  <FiChevronLeft />
+                </button>
+              )}
+              <img
+                src={salesImagePreview.images[salesImagePreview.index].url}
+                alt={`${salesImagePreview.name} ${salesImagePreview.index + 1}`}
+              />
+              {salesImagePreview.images.length > 1 && (
+                <button
+                  type="button"
+                  className="gallery-arrow next"
+                  aria-label="Next image"
+                  onClick={() =>
+                    setSalesImagePreview((preview) => ({
+                      ...preview,
+                      index: (preview.index + 1) % preview.images.length,
+                    }))
+                  }
+                >
+                  <FiChevronRight />
+                </button>
+              )}
             </div>
-            {salesImagePreview.images.length > 1 && <div className="product-image-gallery-footer"><div className="product-image-thumbnails">{salesImagePreview.images.map((image, index) => <button type="button" className={index === salesImagePreview.index ? "active" : ""} key={image._id || image.url} aria-label={`View image ${index + 1}`} onClick={() => setSalesImagePreview((preview) => ({ ...preview, index }))}><img src={image.url} alt="" /></button>)}</div></div>}
+            {salesImagePreview.images.length > 1 && (
+              <div className="product-image-gallery-footer">
+                <div className="product-image-thumbnails">
+                  {salesImagePreview.images.map((image, index) => (
+                    <button
+                      type="button"
+                      className={
+                        index === salesImagePreview.index ? "active" : ""
+                      }
+                      key={image._id || image.url}
+                      aria-label={`View image ${index + 1}`}
+                      onClick={() =>
+                        setSalesImagePreview((preview) => ({
+                          ...preview,
+                          index,
+                        }))
+                      }
+                    >
+                      <img src={image.url} alt="" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -2651,7 +3839,12 @@ function App() {
     return () => document.removeEventListener("click", click);
   }, []);
   const logout = () => {
-    window.fetch(`${API_URL}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
+    window
+      .fetch(`${API_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      })
+      .catch(() => {});
     localStorage.removeItem("jockeyUser");
     localStorage.removeItem("jockeyToken");
     localStorage.removeItem("jockeySessionExpiresAt");
