@@ -152,7 +152,10 @@ app.use(session({
   cookie: {
     maxAge: sessionMaxAge,
     httpOnly: true,
-    sameSite: 'lax',
+    // The frontend and API are deployed to different Vercel subdomains, which
+    // browsers treat as cross-site. Cross-site credentialed fetches require
+    // SameSite=None together with a secure cookie.
+    sameSite: isProduction ? 'none' : 'lax',
     secure: isProduction
   }
 }));
