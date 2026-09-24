@@ -32,6 +32,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import "./style.css";
+import logoUrl from "../assets/LOGO.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const SIGN_IN_LOADER =
   "https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json";
@@ -117,9 +118,7 @@ function Login({ onLogin, theme, setTheme }) {
         <div className="login-theme">
           <ThemeButton theme={theme} setTheme={setTheme} />
         </div>
-        <div className="brand">
-          JOCKEY<span>®</span>
-        </div>
+        <div className="brand"><img className="brand-logo" src={logoUrl} alt="Jockey logo" />JOCKEY<span>®</span></div>
         <p>STOCK MANAGEMENT SYSTEM</p>
         <h1>
           Move stock.
@@ -2248,9 +2247,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       )}
       <aside className={`${c ? "collapsed" : ""} ${m ? "mobile-open" : ""}`}>
         <div className="sidebar-top">
-          <div className="brand">
-            JOCKEY<span>®</span>
-          </div>
+          <div className="brand"><img className="brand-logo" src={logoUrl} alt="Jockey logo" />JOCKEY<span>®</span></div>
           <button
             className="sidebar-toggle"
             onClick={() => (window.innerWidth <= 760 ? setM(!m) : setC(!c))}
@@ -3824,6 +3821,11 @@ function App() {
       () => localStorage.getItem("jockeyTheme") || "light",
     ),
     [inventory, setInventory] = useState(false);
+  useEffect(() => {
+    let icon = document.querySelector("link[rel='icon']");
+    if (!icon) { icon = document.createElement("link"); icon.rel = "icon"; document.head.appendChild(icon); }
+    icon.href = logoUrl;
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("jockeyTheme", theme);
