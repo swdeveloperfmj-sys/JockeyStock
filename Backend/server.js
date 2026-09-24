@@ -36,6 +36,10 @@ const publishStockUpdate = (products) => {
 };
 const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -131,7 +135,11 @@ const addInheritedProductImages = async (products) => {
 
 app.set('trust proxy', 1);
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+  origin(origin, callback) {
+    // Requests without an Origin header (for example health checks) are safe to allow.
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '2mb' }));
