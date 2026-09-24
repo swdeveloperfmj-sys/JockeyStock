@@ -33,6 +33,7 @@ import {
 } from "react-icons/fi";
 import "./style.css";
 import logoUrl from "../assets/LOGO.png";
+import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const SIGN_IN_LOADER =
   "https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json";
@@ -114,14 +115,14 @@ function Login({ onLogin, theme, setTheme }) {
   }
   return (
     <main className="login-page">
-      <section className="brand-panel">
+      <section className="brand-panel" style={{ background: `linear-gradient(135deg, rgba(200, 16, 46, .22), rgba(115, 7, 24, .12)), url(${loginBackgroundUrl}) 76% center / cover no-repeat` }}>
         <div className="login-theme">
           <ThemeButton theme={theme} setTheme={setTheme} />
         </div>
-        <div className="brand"><img className="brand-logo" src={logoUrl} alt="Jockey logo" />JOCKEY<span>®</span></div>
+        <div className="brand">JOCKEY<span>®</span></div>
         <p>STOCK MANAGEMENT SYSTEM</p>
         <h1>
-          Move stock.
+          Move stock,
           <br />
           Grow sales.
         </h1>

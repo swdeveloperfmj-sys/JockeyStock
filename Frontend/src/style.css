@@ -38,6 +38,9 @@ body {
 }
 .brand-panel {
   background: var(--red);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
   color: white;
   padding: clamp(48px, 11vh, 130px) clamp(32px, 12%, 150px);
   display: flex;
@@ -73,6 +76,10 @@ aside > p {
 }
 .brand-panel small {
   opacity: 0.8;
+}
+.brand-panel > :not(.login-theme) {
+  position: relative;
+  top: -50px;
 }
 .form-panel {
   background: var(--surface);
@@ -1124,12 +1131,26 @@ td small {
     grid-template-columns: 1fr;
   }
   .brand-panel {
-    min-height: 255px;
-    padding: 42px 10%;
+    min-height: clamp(280px, 42dvh, 360px);
+    padding: 38px 10%;
+    background-position: 76% center;
   }
   .brand-panel h1 {
     font-size: 2.45rem;
     margin-bottom: 16px;
+  }
+  .brand-panel {
+    align-items: center;
+    justify-content: center;
+  }
+  .brand-panel > p,
+  .brand-panel > h1,
+  .brand-panel > small {
+    display: none;
+  }
+  .brand-panel > .brand {
+    top: 0;
+    justify-content: center;
   }
   .form-panel {
     padding: 38px 24px 48px;
@@ -1274,6 +1295,15 @@ td small {
   .activity h2 {
     font-size: 1.5rem;
   }
+}
+@media (max-width: 420px) {
+  .brand-panel {
+    min-height: 270px;
+    padding: 32px 9%;
+    background-position: 82% center;
+  }
+  .brand-panel h1 { font-size: 2.15rem; }
+  .brand-panel > p { margin-top: 18px; }
 }
 
 @media (max-width: 380px) {
