@@ -711,7 +711,7 @@ td small {
   inset: 0 0 0 260px;
   z-index: 12;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
   background: var(--cream);
   padding: clamp(24px, 4vw, 58px);
   animation: fade-in 0.22s ease both;
