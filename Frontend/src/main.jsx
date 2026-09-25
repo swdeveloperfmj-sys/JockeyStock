@@ -821,7 +821,7 @@ function SalesOrderPage({ onOrderCreated }) {
     setError("");
   };
   const total = cart.reduce(
-    (sum, item) => sum + item.quantity * Number(item.product.orderPrice || 0),
+    (sum, item) => sum + item.quantity * Number(item.product.sellingPrice || 0),
     0,
   );
   const availableProducts = products.filter(
@@ -1142,7 +1142,7 @@ function SalesOrderPage({ onOrderCreated }) {
                         <small>
                           LKR{" "}
                           {Number(
-                            item.product.orderPrice || 0,
+                            item.product.sellingPrice || 0,
                           ).toLocaleString()}{" "}
                           each
                         </small>
@@ -1151,7 +1151,7 @@ function SalesOrderPage({ onOrderCreated }) {
                       <td>
                         LKR{" "}
                         {(
-                          item.quantity * Number(item.product.orderPrice || 0)
+                          item.quantity * Number(item.product.sellingPrice || 0)
                         ).toLocaleString()}
                       </td>
                       <td>
@@ -1238,7 +1238,7 @@ function SalesOrderPage({ onOrderCreated }) {
                         <small>
                           LKR{" "}
                           {Number(
-                            item.product.orderPrice || 0,
+                            item.product.sellingPrice || 0,
                           ).toLocaleString()}{" "}
                           each
                         </small>
@@ -1247,7 +1247,7 @@ function SalesOrderPage({ onOrderCreated }) {
                       <td>
                         LKR{" "}
                         {(
-                          item.quantity * Number(item.product.orderPrice || 0)
+                          item.quantity * Number(item.product.sellingPrice || 0)
                         ).toLocaleString()}
                       </td>
                       <td>
@@ -2534,19 +2534,11 @@ const createEmptyProduct = () => ({
   subSubCategory: "",
   supplierCode: "JOCKEY",
   costPrice: "",
-  orderPrice: "",
-  averageCost: "",
   sellingPrice: "",
-  wholesalePrice: "",
-  minimumPrice: "",
 });
 const productPriceFields = [
   "costPrice",
-  "orderPrice",
-  "averageCost",
   "sellingPrice",
-  "wholesalePrice",
-  "minimumPrice",
 ];
 const productImportColumns = [
   { header: "Product Code", key: "productCode", width: 19 },
@@ -2562,11 +2554,7 @@ const productImportColumns = [
   },
   { header: "Supplier Code", key: "supplierCode", width: 17 },
   { header: "Cost Price", key: "costPrice", width: 15 },
-  { header: "Order Price", key: "orderPrice", width: 15 },
-  { header: "Average Cost", key: "averageCost", width: 16 },
   { header: "Selling Price", key: "sellingPrice", width: 16 },
-  { header: "Wholesale Price", key: "wholesalePrice", width: 18 },
-  { header: "Minimum Price", key: "minimumPrice", width: 16 },
 ];
 const normalizeSheetHeader = (value) =>
   String(value || "")
@@ -2673,11 +2661,7 @@ function ProductMaster({ open }) {
       subSubCategory: product.subSubCategory || "",
       supplierCode: product.supplierCode || "JOCKEY",
       costPrice: product.costPrice ?? "",
-      orderPrice: product.orderPrice ?? "",
-      averageCost: product.averageCost ?? "",
       sellingPrice: product.sellingPrice ?? "",
-      wholesalePrice: product.wholesalePrice ?? "",
-      minimumPrice: product.minimumPrice ?? "",
     });
     setFormOpen(true);
   };
@@ -3257,11 +3241,7 @@ function ProductMaster({ open }) {
                     <th>Sub Category</th>
                     <th>Supplier</th>
                     <th className="price-column">Cost Price</th>
-                    <th className="price-column">Order Price</th>
-                    <th className="price-column">Average Cost</th>
                     <th className="price-column">Selling Price</th>
-                    <th className="price-column">Wholesale Price</th>
-                    <th className="price-column">Minimum Price</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3377,11 +3357,7 @@ function ProductMaster({ open }) {
                   <th>Sub Sub Category</th>
                   <th>Supplier Code</th>
                   <th className="price-column">Cost Price</th>
-                  <th className="price-column">Order Price</th>
-                  <th className="price-column">Average Cost</th>
                   <th className="price-column">Selling Price</th>
-                  <th className="price-column">Wholesale Price</th>
-                  <th className="price-column">Minimum Price</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -3521,20 +3497,8 @@ function ProductMaster({ open }) {
                     <td className="price-column" data-label="Cost Price">
                       {formatPrice(p.costPrice)}
                     </td>
-                    <td className="price-column" data-label="Order Price">
-                      {formatPrice(p.orderPrice)}
-                    </td>
-                    <td className="price-column" data-label="Average Cost">
-                      {formatPrice(p.averageCost)}
-                    </td>
                     <td className="price-column" data-label="Selling Price">
                       {formatPrice(p.sellingPrice)}
-                    </td>
-                    <td className="price-column" data-label="Wholesale Price">
-                      {formatPrice(p.wholesalePrice)}
-                    </td>
-                    <td className="price-column" data-label="Minimum Price">
-                      {formatPrice(p.minimumPrice)}
                     </td>
                     <td data-label="Actions" className="product-actions">
                       <button
@@ -3751,30 +3715,6 @@ function ProductMaster({ open }) {
                 />
               </label>
               <label>
-                Order Price *
-                <input
-                  name="orderPrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.orderPrice}
-                  onChange={update}
-                  required
-                />
-              </label>
-              <label>
-                Average Cost *
-                <input
-                  name="averageCost"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.averageCost}
-                  onChange={update}
-                  required
-                />
-              </label>
-              <label>
                 Selling Price *
                 <input
                   name="sellingPrice"
@@ -3782,30 +3722,6 @@ function ProductMaster({ open }) {
                   min="0"
                   step="0.01"
                   value={form.sellingPrice}
-                  onChange={update}
-                  required
-                />
-              </label>
-              <label>
-                Wholesale Price *
-                <input
-                  name="wholesalePrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.wholesalePrice}
-                  onChange={update}
-                  required
-                />
-              </label>
-              <label>
-                Minimum Price *
-                <input
-                  name="minimumPrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.minimumPrice}
                   onChange={update}
                   required
                 />
