@@ -6,6 +6,7 @@ import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import multer from 'multer';
+import nodemailer from 'nodemailer';
 import { v2 as cloudinary } from 'cloudinary';
 import User from './models/User.js';
 import Location from './models/Location.js';
@@ -43,6 +44,32 @@ const publishStockUpdate = (products) => {
 };
 const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
+const emailIsConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+const mailTransport = emailIsConfigured
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    })
+  : null;
+const smsIsConfigured = process.env.TEXTWARE_SMS_ENABLED === 'true' && Boolean(
+  process.env.TEXTWARE_SMS_URL && process.env.TEXTWARE_SMS_USERNAME && process.env.TEXTWARE_SMS_PASSWORD && process.env.TEXTWARE_SMS_SENDER_ID
+);
+const deliverOrderNotification = async (recipient, order) => {
+  const subject = `New pending order ${order.orderNumber}`;
+  const message = `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`;
+  const deliveries = [];
+  if (mailTransport && recipient.email) deliveries.push(mailTransport.sendMail({ from: process.env.EMAIL_FROM, to: recipient.email, subject, text: message }));
+  if (smsIsConfigured && recipient.contactNumber) {
+    const parameters = new URLSearchParams({ username: process.env.TEXTWARE_SMS_USERNAME, password: process.env.TEXTWARE_SMS_PASSWORD, sender_id: process.env.TEXTWARE_SMS_SENDER_ID, to: recipient.contactNumber, message });
+    deliveries.push(fetch(`${process.env.TEXTWARE_SMS_URL}?${parameters}`).then((response) => {
+      if (!response.ok) throw new Error(`Textware SMS failed with status ${response.status}.`);
+    }));
+  }
+  const results = await Promise.allSettled(deliveries);
+  results.filter((result) => result.status === 'rejected').forEach((result) => console.error('Notification delivery failed:', result.reason?.message || result.reason));
+};
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -367,7 +394,7 @@ app.post('/api/orders', async (req, res) => {
     }).select('_id openingStock updatedAt');
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
-    const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: user.location }).select('_id');
+    const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: createdOrder.location }).select('_id email contactNumber');
     if (locationManagers.length) {
       const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
       await Notification.insertMany(locationManagers.map((manager) => ({
@@ -378,6 +405,7 @@ app.post('/api/orders', async (req, res) => {
         expiresAt
       })));
       publishNotificationUpdate();
+      void Promise.all(locationManagers.map((manager) => deliverOrderNotification(manager, createdOrder)));
     }
     res.status(201).json(createdOrder);
   } catch (error) {

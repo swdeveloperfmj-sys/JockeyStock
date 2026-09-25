@@ -1577,6 +1577,7 @@ function SalesHistoryPage({ refreshKey }) {
 function StockUpdatePage() {
   const [products, setProducts] = useState([]),
     [filters, setFilters] = useState({ search: "", category: "", gender: "", stock: "" }),
+    [scannedCode, setScannedCode] = useState(""),
     [selectedProduct, setSelectedProduct] = useState(null),
     [quantity, setQuantity] = useState(""),
     [error, setError] = useState(""),
@@ -1605,6 +1606,16 @@ function StockUpdatePage() {
       (!filters.gender || product.gender === filters.gender) &&
       (!filters.stock || (filters.stock === "out" ? Number(product.openingStock || 0) === 0 : Number(product.openingStock || 0) > 0));
   });
+  const openScannedProduct = (value = scannedCode) => {
+    const code = value.trim();
+    if (!code) return;
+    const product = products.find((item) => String(item.productCode || item.sku || "").toLowerCase() === code.toLowerCase());
+    if (!product) return setError(`No product was found for code ${code}.`);
+    setSelectedProduct(product);
+    setQuantity("");
+    setScannedCode("");
+    setError("");
+  };
   const submit = async (event) => {
     event.preventDefault();
     setError("");
@@ -1653,6 +1664,9 @@ function StockUpdatePage() {
       </div>
       {error && <p className="dashboard-error">{error}</p>}
       {message && <p className="stock-update-success">{message}</p>}
+      <div className="stock-scan-form">
+        <label>Scan barcode / enter 13-digit product code<input autoFocus value={scannedCode} onChange={(event) => { const code = event.target.value.replace(/\D/g, "").slice(0, 13); setScannedCode(code); if (code.length === 13) openScannedProduct(code); }} placeholder="Scan barcode" inputMode="numeric" maxLength="13" /></label>
+      </div>
       <div className="stock-update-filters" aria-label="Filter products">
         <input type="search" value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search name, code, style, colour..." aria-label="Search products" />
         <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))} aria-label="Filter by category"><option value="">All categories</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select>
@@ -1881,6 +1895,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       ? [
           [FiBarChart2, "Dashboard"],
           [FiBox, "Stock Update"],
+          [FiPlusCircle, "Create Order"],
           [FiFileText, "Pending Orders"],
         ]
       : [
@@ -2060,6 +2075,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [
       "Pending Order Stock",
       formatNumber(salesOrders.reduce((total, order) => total + Number(order.totalQuantity || 0), 0)),
+      () => setV("Pending Orders"),
     ],
   ];
   const header = (
@@ -2123,11 +2139,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <StockUpdatePage />
     ) : view === "Pending Orders" && locationManager ? (
       <PendingOrdersPage />
-    ) : view === "Create Order" && !admin && !locationManager ? (
+    ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         onOrderCreated={() => {
           setOrderRefreshKey((key) => key + 1);
-          setV("Sales");
+          setV(locationManager ? "Pending Orders" : "Sales");
         }}
       />
     ) : view === "Sales" && !admin && !locationManager ? (
