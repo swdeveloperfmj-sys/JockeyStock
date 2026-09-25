@@ -16,10 +16,11 @@ const orderSchema = new mongoose.Schema({
   customerAddress: { type: String, required: true, trim: true },
   salesRepId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   salesRepName: { type: String, required: true, trim: true },
+  location: { type: String, required: true, trim: true },
   items: { type: [orderItemSchema], validate: [(items) => items.length > 0, 'At least one item is required.'] },
   totalQuantity: { type: Number, required: true, min: 1 },
   totalAmount: { type: Number, required: true, min: 0 },
-  status: { type: String, enum: ['COMPLETED'], default: 'COMPLETED' }
+  status: { type: String, enum: ['PENDING', 'COMPLETED'], default: 'PENDING' }
 }, { timestamps: true });
 
 export default mongoose.model('Order', orderSchema);

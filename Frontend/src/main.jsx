@@ -12,6 +12,7 @@ import { divIcon } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   FiBarChart2,
+  FiBell,
   FiBox,
   FiCamera,
   FiChevronLeft,
@@ -1575,6 +1576,8 @@ function SalesHistoryPage({ refreshKey }) {
 }
 function StockUpdatePage() {
   const [products, setProducts] = useState([]),
+    [filters, setFilters] = useState({ search: "", category: "", gender: "", stock: "" }),
+    [scannedCode, setScannedCode] = useState(""),
     [selectedProduct, setSelectedProduct] = useState(null),
     [quantity, setQuantity] = useState(""),
     [error, setError] = useState(""),
@@ -1593,6 +1596,26 @@ function StockUpdatePage() {
   useEffect(() => {
     load();
   }, []);
+  const categories = [...new Set(products.map((product) => product.categoryCode || product.category).filter(Boolean))].sort();
+  const genders = [...new Set(products.map((product) => product.gender).filter(Boolean))].sort();
+  const filteredProducts = products.filter((product) => {
+    const search = filters.search.trim().toLowerCase();
+    const searchable = [product.productCode, product.sku, product.productName, product.name, product.style, product.color, product.size, product.categoryCode, product.category, product.gender].filter(Boolean).join(" ").toLowerCase();
+    return (!search || searchable.includes(search)) &&
+      (!filters.category || (product.categoryCode || product.category) === filters.category) &&
+      (!filters.gender || product.gender === filters.gender) &&
+      (!filters.stock || (filters.stock === "out" ? Number(product.openingStock || 0) === 0 : Number(product.openingStock || 0) > 0));
+  });
+  const openScannedProduct = (value = scannedCode) => {
+    const code = value.trim();
+    if (!code) return;
+    const product = products.find((item) => String(item.productCode || item.sku || "").toLowerCase() === code.toLowerCase());
+    if (!product) return setError(`No product was found for code ${code}.`);
+    setSelectedProduct(product);
+    setQuantity("");
+    setScannedCode("");
+    setError("");
+  };
   const submit = async (event) => {
     event.preventDefault();
     setError("");
@@ -1641,8 +1664,18 @@ function StockUpdatePage() {
       </div>
       {error && <p className="dashboard-error">{error}</p>}
       {message && <p className="stock-update-success">{message}</p>}
+      <div className="stock-scan-form">
+        <label>Scan barcode / enter 13-digit product code<input autoFocus value={scannedCode} onChange={(event) => { const code = event.target.value.replace(/\D/g, "").slice(0, 13); setScannedCode(code); if (code.length === 13) openScannedProduct(code); }} placeholder="Scan barcode" inputMode="numeric" maxLength="13" /></label>
+      </div>
+      <div className="stock-update-filters" aria-label="Filter products">
+        <input type="search" value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search name, code, style, colour..." aria-label="Search products" />
+        <select value={filters.category} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))} aria-label="Filter by category"><option value="">All categories</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select>
+        <select value={filters.gender} onChange={(event) => setFilters((current) => ({ ...current, gender: event.target.value }))} aria-label="Filter by gender"><option value="">All genders</option>{genders.map((gender) => <option key={gender} value={gender}>{gender}</option>)}</select>
+        <select value={filters.stock} onChange={(event) => setFilters((current) => ({ ...current, stock: event.target.value }))} aria-label="Filter by stock"><option value="">All stock</option><option value="in">In stock</option><option value="out">Out of stock</option></select>
+      </div>
+      <p className="stock-filter-count">{filteredProducts.length} of {products.length} products</p>
       <div className="factory-product-grid">
-        {products.map((product) => {
+        {filteredProducts.map((product) => {
           const image = product.images?.[0]?.url || product.imageUrl;
           return (
             <article
@@ -1690,6 +1723,7 @@ function StockUpdatePage() {
           );
         })}
       </div>
+      {!filteredProducts.length && <p className="empty-dashboard-state">No products match the selected filters.</p>}
       {selectedProduct && (
         <div
           className="modal-backdrop"
@@ -1754,6 +1788,38 @@ function StockUpdatePage() {
     </section>
   );
 }
+function PendingOrdersPage() {
+  const [orders, setOrders] = useState([]), [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const loadOrders = () => fetch(`${API_URL}/orders`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        if (active) setOrders(data);
+      })
+      .catch((requestError) => active && setError(requestError.message));
+    loadOrders();
+    const events = new EventSource(`${API_URL}/stock-events`, { withCredentials: true });
+    events.addEventListener("order-update", loadOrders);
+    return () => { active = false; events.close(); };
+  }, []);
+  return (
+    <section className="pending-orders-page">
+      <div className="page-title"><div><p className="eyebrow">SALES ORDERS</p><h1>Pending orders</h1><p className="page-description">Orders created by sales representatives for your location.</p></div></div>
+      {error && <p className="dashboard-error">{error}</p>}
+      <p className="pending-orders-count">{orders.length} pending {orders.length === 1 ? "order" : "orders"}</p>
+      {orders.length ? <div className="pending-orders-list">
+        {orders.map((order) => <article className="pending-order-card" key={order._id}>
+          <div className="pending-order-heading"><div><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{new Date(order.createdAt).toLocaleString()}</small></div><b>Pending</b></div>
+          <div className="pending-order-meta"><span><small>Sales rep</small>{order.salesRepName}</span><span><small>Phone</small>{order.customerPhone || "Not provided"}</span><span><small>Delivery address</small>{order.customerAddress}</span></div>
+          <div className="pending-order-items">{order.items.map((item) => <div key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} pcs</b></div>)}</div>
+          <div className="pending-order-total"><span>{order.totalQuantity} pieces</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+        </article>)}
+      </div> : <p className="empty-dashboard-state">No pending orders for this location.</p>}
+    </section>
+  );
+}
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
@@ -1771,10 +1837,51 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       search: "",
       category: "",
       gender: "",
+      stock: "",
     }),
     [salesImagePreview, setSalesImagePreview] = useState(null),
+    [notifications, setNotifications] = useState([]),
+    [notificationsOpen, setNotificationsOpen] = useState(false),
+    [toastNotification, setToastNotification] = useState(null),
     admin = user.role === "SUPER_ADMIN",
     locationManager = user.role === "LOCATION_MANAGER";
+  const unreadNotifications = notifications.filter((notification) => !notification.readAt);
+  const markNotificationRead = async (notification) => {
+    if (notification.readAt) return;
+    setNotifications((items) => items.map((item) => item._id === notification._id ? { ...item, readAt: new Date().toISOString() } : item));
+    try { await fetch(`${API_URL}/notifications/${notification._id}/read`, { method: "PATCH" }); } catch { /* The notification remains visible and will retry on another click. */ }
+  };
+  useEffect(() => {
+    let active = true;
+    const loadNotifications = async (showToast = false) => {
+      try {
+        const response = await fetch(`${API_URL}/notifications`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message);
+        if (!active) return;
+        setNotifications(data);
+        if (showToast && data.find((notification) => !notification.readAt)) setToastNotification(data.find((notification) => !notification.readAt));
+      } catch { /* Notifications must not block the dashboard. */ }
+    };
+    loadNotifications(true);
+    const events = new EventSource(`${API_URL}/stock-events`, { withCredentials: true });
+    events.addEventListener("notification-update", () => {
+      loadNotifications(true);
+      setOrderRefreshKey((key) => key + 1);
+    });
+    events.addEventListener("order-update", () => setOrderRefreshKey((key) => key + 1));
+    events.addEventListener("stock-update", (event) => {
+      const updates = JSON.parse(event.data);
+      const stockById = new Map(updates.map((item) => [item.productId, Number(item.openingStock)]));
+      setSalesProducts((items) => items.map((item) => stockById.has(item._id) ? { ...item, openingStock: stockById.get(item._id) } : item));
+    });
+    return () => { active = false; events.close(); };
+  }, []);
+  useEffect(() => {
+    if (!toastNotification) return;
+    const timer = window.setTimeout(() => setToastNotification(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toastNotification]);
   const links = admin
     ? [
         [FiBarChart2, "Dashboard"],
@@ -1788,6 +1895,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       ? [
           [FiBarChart2, "Dashboard"],
           [FiBox, "Stock Update"],
+          [FiPlusCircle, "Create Order"],
+          [FiFileText, "Pending Orders"],
         ]
       : [
           [FiBarChart2, "Dashboard"],
@@ -1863,7 +1972,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         (product.categoryCode || product.category) ===
           salesProductFilters.category) &&
       (!salesProductFilters.gender ||
-        product.gender === salesProductFilters.gender)
+        product.gender === salesProductFilters.gender) &&
+      (!salesProductFilters.stock ||
+        (salesProductFilters.stock === "out" &&
+          Number(product.openingStock || 0) === 0))
     );
   });
   useEffect(() => {
@@ -1955,6 +2067,15 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           (product) => Number(product.openingStock || 0) === 0,
         ).length,
       ),
+      () => setSalesProductFilters((filters) => ({
+        ...filters,
+        stock: filters.stock === "out" ? "" : "out",
+      })),
+    ],
+    [
+      "Pending Order Stock",
+      formatNumber(salesOrders.reduce((total, order) => total + Number(order.totalQuantity || 0), 0)),
+      () => setV("Pending Orders"),
     ],
   ];
   const header = (
@@ -1972,6 +2093,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             ? `Manage ${view.toLowerCase()}.`
             : view === "Stock Update"
               ? "Update factory stock."
+              : view === "Pending Orders"
+                ? "Review pending sales orders."
               : view === "Create Order"
                 ? "Create sales order."
                 : view === "Sales"
@@ -1983,6 +2106,16 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         <button className="mobile-menu-button" onClick={() => setM(true)}>
           <FiMenu />
         </button>
+        <div className="notification-menu">
+          <button type="button" className="notification-bell" onClick={() => setNotificationsOpen((open) => !open)} aria-label="Notifications" aria-expanded={notificationsOpen}>
+            <FiBell />
+            {unreadNotifications.length > 0 && <b>{unreadNotifications.length > 99 ? "99+" : unreadNotifications.length}</b>}
+          </button>
+          {notificationsOpen && <section className="notification-dropdown" aria-label="Notifications">
+            <div className="notification-dropdown-title"><div><h2>Notifications</h2><small>{unreadNotifications.length} unread</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><FiX /></button></div>
+            <div className="notification-list">{notifications.length ? notifications.map((notification) => <button type="button" key={notification._id} className={`notification-item ${notification.readAt ? "" : "is-unread"}`} onClick={() => markNotificationRead(notification)}><strong>{notification.title}</strong><span>{notification.message}</span><small>{new Date(notification.createdAt).toLocaleString()}</small></button>) : <p>No notifications yet.</p>}</div>
+          </section>}
+        </div>
         <ThemeButton theme={theme} setTheme={setTheme} />
         <div className="avatar" title={user.name}>
           {user.name[0]}
@@ -2004,11 +2137,13 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <SettingsPage type="roles" />
     ) : view === "Stock Update" && locationManager ? (
       <StockUpdatePage />
-    ) : view === "Create Order" && !admin && !locationManager ? (
+    ) : view === "Pending Orders" && locationManager ? (
+      <PendingOrdersPage />
+    ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         onOrderCreated={() => {
           setOrderRefreshKey((key) => key + 1);
-          setV("Sales");
+          setV(locationManager ? "Pending Orders" : "Sales");
         }}
       />
     ) : view === "Sales" && !admin && !locationManager ? (
@@ -2016,8 +2151,17 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : (
       <>
         <section className="stats">
-          {displayedStats.map(([l, v]) => (
-            <article key={l}>
+          {displayedStats.map(([l, v, onClick]) => (
+            <article
+              key={l}
+              className={onClick && salesProductFilters.stock === "out" ? "is-active" : ""}
+              role={onClick ? "button" : undefined}
+              tabIndex={onClick ? 0 : undefined}
+              onClick={onClick}
+              onKeyDown={(event) => {
+                if (onClick && (event.key === "Enter" || event.key === " ")) onClick();
+              }}
+            >
               <p>{l}</p>
               <strong>{v}</strong>
               <small>Updated just now</small>
@@ -2036,7 +2180,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 </h2>
                 <p>
                   {locationManager
-                    ? `Products assigned to ${user.location}.`
+                    ? salesProductFilters.stock === "out"
+                      ? "Showing out-of-stock products. Click the Out of Stock card again to clear."
+                      : `Products assigned to ${user.location}.`
                     : "Browse product details and available stock."}
                 </p>
               </div>
@@ -2188,6 +2334,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     );
   return (
     <div className="dashboard">
+      {toastNotification && <aside className="notification-toast" role="status"><FiBell /><div><strong>{toastNotification.title}</strong><span>{toastNotification.message}</span></div><button type="button" onClick={() => setToastNotification(null)} aria-label="Dismiss notification"><FiX /></button></aside>}
       {m && <button className="menu-overlay" onClick={() => setM(false)} />}{" "}
       {confirm && (
         <div className="modal-backdrop">

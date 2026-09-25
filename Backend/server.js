@@ -6,12 +6,14 @@ import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
 import multer from 'multer';
+import nodemailer from 'nodemailer';
 import { v2 as cloudinary } from 'cloudinary';
 import User from './models/User.js';
 import Location from './models/Location.js';
 import Role from './models/Role.js';
 import Product from './models/Product.js';
 import Order from './models/Order.js';
+import Notification from './models/Notification.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -26,6 +28,12 @@ const connectDatabase = async () => {
   return databaseConnection;
 };
 const stockEventClients = new Set();
+const publishNotificationUpdate = () => {
+  for (const client of stockEventClients) client.write('event: notification-update\ndata: {}\n\n');
+};
+const publishOrderUpdate = () => {
+  for (const client of stockEventClients) client.write('event: order-update\ndata: {}\n\n');
+};
 const publishStockUpdate = (products) => {
   const payload = JSON.stringify(products.map((product) => ({
     productId: String(product._id),
@@ -36,6 +44,32 @@ const publishStockUpdate = (products) => {
 };
 const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
+const emailIsConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+const mailTransport = emailIsConfigured
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    })
+  : null;
+const smsIsConfigured = process.env.TEXTWARE_SMS_ENABLED === 'true' && Boolean(
+  process.env.TEXTWARE_SMS_URL && process.env.TEXTWARE_SMS_USERNAME && process.env.TEXTWARE_SMS_PASSWORD && process.env.TEXTWARE_SMS_SENDER_ID
+);
+const deliverOrderNotification = async (recipient, order) => {
+  const subject = `New pending order ${order.orderNumber}`;
+  const message = `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`;
+  const deliveries = [];
+  if (mailTransport && recipient.email) deliveries.push(mailTransport.sendMail({ from: process.env.EMAIL_FROM, to: recipient.email, subject, text: message }));
+  if (smsIsConfigured && recipient.contactNumber) {
+    const parameters = new URLSearchParams({ username: process.env.TEXTWARE_SMS_USERNAME, password: process.env.TEXTWARE_SMS_PASSWORD, sender_id: process.env.TEXTWARE_SMS_SENDER_ID, to: recipient.contactNumber, message });
+    deliveries.push(fetch(`${process.env.TEXTWARE_SMS_URL}?${parameters}`).then((response) => {
+      if (!response.ok) throw new Error(`Textware SMS failed with status ${response.status}.`);
+    }));
+  }
+  const results = await Promise.allSettled(deliveries);
+  results.filter((result) => result.status === 'rejected').forEach((result) => console.error('Notification delivery failed:', result.reason?.message || result.reason));
+};
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -231,6 +265,30 @@ app.use('/api', requireSession);
 
 const currentUser = async (req) => User.findById(req.session.userId);
 
+// An order belongs to the plant that supplies its products, not the sales
+// representative's profile location. Normalize old records from their items.
+let legacyOrderMigration;
+const migrateLegacyOrders = async () => {
+  if (legacyOrderMigration) return legacyOrderMigration;
+  legacyOrderMigration = (async () => {
+    const orders = await Order.find({}).select('_id items.productId');
+    if (!orders.length) return;
+    const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))))];
+    const products = await Product.find({ _id: { $in: productIds } }).select('_id plant');
+    const plantByProduct = new Map(products.map((product) => [String(product._id), product.plant]));
+    await Promise.all(orders.map((order) => {
+      const plants = [...new Set(order.items.map((item) => plantByProduct.get(String(item.productId))).filter(Boolean))];
+      return plants.length === 1
+        ? Order.updateOne({ _id: order._id }, { $set: { location: plants[0], status: 'PENDING' } })
+        : null;
+    }));
+  })().catch((error) => {
+    legacyOrderMigration = undefined;
+    throw error;
+  });
+  return legacyOrderMigration;
+};
+
 // All signed-in sales screens receive stock changes immediately. The order API
 // still performs the final atomic stock check, which protects against races.
 app.get('/api/stock-events', (req, res) => {
@@ -248,8 +306,31 @@ app.get('/api/stock-events', (req, res) => {
 app.get('/api/orders', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  const filter = user.role === 'SUPER_ADMIN' ? {} : { salesRepId: user._id };
+  await migrateLegacyOrders();
+  const filter = user.role === 'SUPER_ADMIN'
+    ? {}
+    : user.role === 'LOCATION_MANAGER'
+      ? { location: user.location, status: 'PENDING' }
+      : { salesRepId: user._id };
   res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(200));
+});
+
+app.get('/api/notifications', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  res.json(await Notification.find({ recipientId: user._id, expiresAt: { $gt: new Date() } }).sort({ createdAt: -1 }).limit(50));
+});
+
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  const notification = await Notification.findOneAndUpdate(
+    { _id: req.params.id, recipientId: user._id },
+    { $set: { readAt: new Date() } },
+    { new: true }
+  );
+  if (!notification) return res.status(404).json({ message: 'Notification not found.' });
+  res.json(notification);
 });
 
 app.post('/api/orders', async (req, res) => {
@@ -279,9 +360,12 @@ app.post('/api/orders', async (req, res) => {
           productName: product.productName,
           quantity,
           unitPrice,
-          total: unitPrice * quantity
+          total: unitPrice * quantity,
+          plant: product.plant
         };
       }));
+      const orderPlants = [...new Set(requestedItems.map((item) => item.plant))];
+      if (orderPlants.length !== 1) throw new Error('Products from different factory locations cannot be added to the same order.');
       for (const item of requestedItems) {
         const result = await Product.updateOne(
           { _id: item.productId, openingStock: { $gte: item.quantity } },
@@ -299,6 +383,7 @@ app.post('/api/orders', async (req, res) => {
         customerAddress: customerAddress.trim(),
         salesRepId: user._id,
         salesRepName: user.name,
+        location: orderPlants[0],
         items: requestedItems,
         totalQuantity,
         totalAmount
@@ -308,6 +393,20 @@ app.post('/api/orders', async (req, res) => {
       _id: { $in: createdOrder.items.map((item) => item.productId) }
     }).select('_id openingStock updatedAt');
     publishStockUpdate(changedProducts);
+    publishOrderUpdate();
+    const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: createdOrder.location }).select('_id email contactNumber');
+    if (locationManagers.length) {
+      const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+      await Notification.insertMany(locationManagers.map((manager) => ({
+        recipientId: manager._id,
+        title: 'New pending order',
+        message: `${user.name} created ${createdOrder.orderNumber} for ${createdOrder.customerName}.`,
+        type: 'ORDER',
+        expiresAt
+      })));
+      publishNotificationUpdate();
+      void Promise.all(locationManagers.map((manager) => deliverOrderNotification(manager, createdOrder)));
+    }
     res.status(201).json(createdOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to create the sales order.' });
