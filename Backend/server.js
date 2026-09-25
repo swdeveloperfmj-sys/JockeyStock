@@ -353,7 +353,7 @@ app.post('/api/orders', async (req, res) => {
         if (!product) throw new Error('One of the selected products no longer exists.');
         const quantity = Number(item.quantity);
         if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
-        const unitPrice = Number(product.orderPrice);
+        const unitPrice = Number(product.sellingPrice);
         return {
           productId: product._id,
           productCode: product.productCode,
@@ -473,7 +473,7 @@ function managementRoutes(path, Model) {
 }
 managementRoutes('roles', Role);
 
-const productFields = ['productCode', 'productName', 'gender', 'categoryCode', 'subCategoryCode', 'subSubCategory', 'supplierCode', 'costPrice', 'orderPrice', 'averageCost', 'sellingPrice', 'wholesalePrice', 'minimumPrice'];
+const productFields = ['productCode', 'productName', 'gender', 'categoryCode', 'subCategoryCode', 'subSubCategory', 'supplierCode', 'costPrice', 'sellingPrice'];
 const allowedGenders = ['MENS', 'WOMENS', 'BOYS', 'GIRLS', 'UNISEX'];
 const normalizeGender = (value = '') => {
   const gender = String(value).trim().toUpperCase();
@@ -540,7 +540,7 @@ app.post('/api/products/bulk', async (req, res) => {
   const errors = [];
   const candidates = [];
   const seenCodes = new Set();
-  const priceFields = ['costPrice', 'orderPrice', 'averageCost', 'sellingPrice', 'wholesalePrice', 'minimumPrice'];
+  const priceFields = ['costPrice', 'sellingPrice'];
   const requiredTextFields = ['productName', 'gender', 'categoryCode', 'subCategoryCode', 'supplierCode'];
 
   rows.forEach((row, index) => {
