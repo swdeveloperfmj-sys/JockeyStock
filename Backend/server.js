@@ -36,10 +36,15 @@ const publishStockUpdate = (products) => {
 };
 const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
-const allowedOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173')
+const configuredOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+// Keep configured deployment URLs, while allowing both common Vite dev URLs
+// whenever the API is running locally.
+const allowedOrigins = isProduction
+  ? configuredOrigins
+  : [...new Set([...configuredOrigins, 'http://localhost:5173', 'http://127.0.0.1:5173'])];
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,

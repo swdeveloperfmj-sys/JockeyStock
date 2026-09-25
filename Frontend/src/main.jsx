@@ -731,8 +731,10 @@ function SalesOrderPage({ onOrderCreated }) {
       Boolean(draft.customerLocked),
     ),
     [productSearch, setProductSearch] = useState(""),
-    [selectedProduct, setSelectedProduct] = useState(null),
-    [selectedQuantity, setSelectedQuantity] = useState(1),
+    [selectedStyle, setSelectedStyle] = useState(""),
+    [selectedPackingQuantity, setSelectedPackingQuantity] = useState(""),
+    [selectedColor, setSelectedColor] = useState(""),
+    [sizeQuantities, setSizeQuantities] = useState({}),
     [showOrderItems, setShowOrderItems] = useState(false),
     [showResetConfirm, setShowResetConfirm] = useState(false),
     [error, setError] = useState(""),
@@ -793,6 +795,10 @@ function SalesOrderPage({ onOrderCreated }) {
     });
     return () => events.close();
   }, []);
+  useEffect(() => {
+    document.body.classList.toggle("selection-modal-open", Boolean(selectedStyle));
+    return () => document.body.classList.remove("selection-modal-open");
+  }, [selectedStyle]);
   const addQuantity = (product, delta) => {
     const current = cart.find((item) => item.productId === product._id);
     const next = (current?.quantity || 0) + delta;
@@ -831,37 +837,96 @@ function SalesOrderPage({ onOrderCreated }) {
         .toLowerCase()
         .includes(productSearch.trim().toLowerCase()),
   );
-  const openProduct = (product) => {
-    setSelectedProduct(product);
-    setSelectedQuantity(
-      cart.find((item) => item.productId === product._id)?.quantity || 1,
-    );
+  const styleProducts = availableProducts.filter(
+    (product) => product.style === selectedStyle,
+  );
+  const packingProducts = styleProducts.filter(
+    (product) => product.packingQuantity === selectedPackingQuantity,
+  );
+  const colorProducts = packingProducts.filter(
+    (product) => product.color === selectedColor,
+  );
+  const styleGroups = Array.from(
+    availableProducts.reduce((groups, product) => {
+      const style = product.style || product.productName?.split("-")[0] || "OTHER";
+      const group = groups.get(style) || { style, products: [], pieces: 0 };
+      group.products.push(product);
+      group.pieces += Number(product.openingStock || 0);
+      groups.set(style, group);
+      return groups;
+    }, new Map()).values(),
+  );
+  const groupBy = (items, key) => Array.from(
+    items.reduce((groups, product) => {
+      const value = product[key] || "OTHER";
+      const group = groups.get(value) || { value, products: [], pieces: 0 };
+      group.products.push(product);
+      group.pieces += Number(product.openingStock || 0);
+      groups.set(value, group);
+      return groups;
+    }, new Map()).values(),
+  );
+  const selectStyle = (style) => {
+    setSelectedStyle(style);
+    setSelectedPackingQuantity("");
+    setSelectedColor("");
+    setSizeQuantities({});
   };
-  const addSelectedProduct = () => {
-    const quantity = Number(selectedQuantity);
+  const selectPacking = (packingQuantity) => {
+    setSelectedPackingQuantity(packingQuantity);
+    setSelectedColor("");
+    setSizeQuantities({});
+  };
+  const selectColor = (color) => {
+    setSelectedColor(color);
+    setSizeQuantities({});
+  };
+  const addSelectedProduct = (product) => {
+    const quantity = Number(sizeQuantities[product._id] || 0);
     if (!Number.isInteger(quantity) || quantity < 1)
-      return setError("Enter a valid quantity.");
-    if (quantity > selectedProduct.openingStock)
+      return setError("Enter a valid number of pieces.");
+    if (quantity > product.openingStock)
       return setError(
-        `Only ${selectedProduct.openingStock} ${selectedProduct.unit} are available.`,
+        `Only ${product.openingStock} ${product.unit} are available.`,
       );
     setCart((items) =>
-      items.some((item) => item.productId === selectedProduct._id)
+      items.some((item) => item.productId === product._id)
         ? items.map((item) =>
-            item.productId === selectedProduct._id
-              ? { ...item, quantity, product: selectedProduct }
+            item.productId === product._id
+              ? { ...item, quantity, product }
               : item,
           )
         : [
             ...items,
             {
-              productId: selectedProduct._id,
-              product: selectedProduct,
+              productId: product._id,
+              product,
               quantity,
             },
           ],
     );
-    setSelectedProduct(null);
+    setSizeQuantities((quantities) => ({ ...quantities, [product._id]: "" }));
+    setError("");
+  };
+  const addSelectedSizes = () => {
+    const selectedItems = colorProducts
+      .map((product) => ({ product, quantity: Number(sizeQuantities[product._id] || 0) }))
+      .filter((item) => item.quantity > 0);
+    if (!selectedItems.length) return setError("Enter pieces for at least one size.");
+    const invalidItem = selectedItems.find(({ product, quantity }) =>
+      !Number.isInteger(quantity) || quantity > product.openingStock,
+    );
+    if (invalidItem) return setError(`Only ${invalidItem.product.openingStock} ${invalidItem.product.unit} are available for ${invalidItem.product.size}.`);
+    setCart((items) => {
+      const nextItems = [...items];
+      selectedItems.forEach(({ product, quantity }) => {
+        const index = nextItems.findIndex((item) => item.productId === product._id);
+        if (index >= 0) nextItems[index] = { ...nextItems[index], quantity, product };
+        else nextItems.push({ productId: product._id, product, quantity });
+      });
+      return nextItems;
+    });
+    selectStyle("");
     setError("");
   };
   const lockCustomer = () => {
@@ -879,7 +944,10 @@ function SalesOrderPage({ onOrderCreated }) {
     setCustomerAddress("");
     setCustomerLocked(false);
     setProductSearch("");
-    setSelectedProduct(null);
+    setSelectedStyle("");
+    setSelectedPackingQuantity("");
+    setSelectedColor("");
+    setSizeQuantities({});
     setShowOrderItems(false);
     setError("");
     sessionStorage.removeItem(ORDER_DRAFT_KEY);
@@ -998,7 +1066,7 @@ function SalesOrderPage({ onOrderCreated }) {
               <div className="sales-product-catalog-heading">
                 <div>
                   <h2>Select products</h2>
-                  <p>Click a product card to choose its quantity.</p>
+                  <p>Choose style, pack, colour, then size.</p>
                 </div>
                 <span>{availableProducts.length} available</span>
               </div>
@@ -1016,36 +1084,21 @@ function SalesOrderPage({ onOrderCreated }) {
               >
                 Check order items ({cart.reduce((sum, item) => sum + item.quantity, 0)})
               </button>
-              <div className="order-product-grid">
-                {availableProducts.map((product) => {
-                  const item = cart.find(
-                    (cartItem) => cartItem.productId === product._id,
-                  );
-                  const image = product.images?.[0]?.url || product.imageUrl;
-                  return (
-                    <button
-                      type="button"
-                      className={`order-product-card ${item ? "is-added" : ""}`}
-                      key={product._id}
-                      onClick={() => openProduct(product)}
-                    >
-                      <div className="order-product-image">
-                        {image ? <img src={image} alt="" /> : <FiImage />}
-                      </div>
-                      <div className="order-product-content">
-                        <span>{product.productCode}</span>
-                        <h3>{product.productName}</h3>
-                        <small>
-                          In stock: {product.openingStock} {product.unit}
-                        </small>
-                        <strong>
-                          LKR {Number(product.orderPrice || 0).toLocaleString()}
-                        </strong>
-                        {item && <em>{item.quantity} in order</em>}
-                      </div>
-                    </button>
-                  );
-                })}
+              <div className="product-selection-flow">
+                <section className="product-selection-step">
+                  <div className="product-selection-title">
+                    <span>1</span><div><h3>Style</h3><p>Select a style number.</p></div>
+                  </div>
+                  <div className="order-product-grid style-product-grid">
+                    {styleGroups.map((group) => {
+                      const image = group.products[0].images?.[0]?.url || group.products[0].imageUrl;
+                      return <button type="button" className={`order-product-card ${selectedStyle === group.style ? "is-selected" : ""}`} key={group.style} onClick={() => selectStyle(group.style)}>
+                        <div className="order-product-image">{image ? <img src={image} alt="" /> : <FiImage />}</div>
+                        <div className="order-product-content"><span>STYLE</span><h3>{group.style}</h3><small>{group.products.length} variants</small><strong>{group.pieces.toLocaleString()} pieces available</strong></div>
+                      </button>;
+                    })}
+                  </div>
+                </section>
               </div>
               {!availableProducts.length && (
                 <p className="empty-dashboard-state">
@@ -1267,45 +1320,52 @@ function SalesOrderPage({ onOrderCreated }) {
           </section>
         </div>
       )}
-      {selectedProduct && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={() => setSelectedProduct(null)}
-        >
-          <section
-            className="product-quantity-modal"
-            role="dialog"
-            aria-modal="true"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="close-modal"
-              onClick={() => setSelectedProduct(null)}
-              aria-label="Close"
-            >
-              <FiX />
-            </button>
-            <p className="eyebrow">ADD TO ORDER</p>
-            <h2>{selectedProduct.productName}</h2>
-            <p>
-              Available stock: {selectedProduct.openingStock}{" "}
-              {selectedProduct.unit}
-            </p>
-            <label>
-              Quantity
-              <input
-                autoFocus
-                type="number"
-                min="1"
-                max={selectedProduct.openingStock}
-                value={selectedQuantity}
-                onChange={(event) => setSelectedQuantity(event.target.value)}
-              />
-            </label>
-            <button type="button" onClick={addSelectedProduct}>
-              Add to order
-            </button>
+      {selectedStyle && (
+        <div className="modal-backdrop product-modal-layer pack-modal-layer" onMouseDown={() => selectStyle("") }>
+          <section className="product-selection-modal" role="dialog" aria-modal="true" aria-label={`Select ${selectedStyle} product`} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-title">
+              <div><p className="eyebrow">STYLE {selectedStyle}</p><h2>Select pack</h2></div>
+              <button type="button" className="close-modal" onClick={() => selectStyle("")} aria-label="Close"><FiX /></button>
+            </div>
+            <div className="product-selection-modal-body">
+              <section className="product-selection-step">
+                <div className="product-selection-title"><span>2</span><div><h3>Pack</h3><p>Select the packing quantity.</p></div></div>
+                <div className="product-choice-grid">
+                  {groupBy(styleProducts, "packingQuantity").map((group) => <button type="button" key={group.value} className={`product-choice-card ${selectedPackingQuantity === group.value ? "is-selected" : ""}`} onClick={() => selectPacking(group.value)}><strong>{group.value} pack</strong><small>{group.pieces.toLocaleString()} pieces available</small></button>)}
+                </div>
+              </section>
+              {false && selectedPackingQuantity && <section className="product-selection-step">
+                <div className="product-selection-title"><span>3</span><div><h3>Colour</h3><p>Select a colour for the {selectedPackingQuantity} pack.</p></div></div>
+                <div className="product-choice-grid">
+                  {groupBy(packingProducts, "color").map((group) => <button type="button" key={group.value} className={`product-choice-card ${selectedColor === group.value ? "is-selected" : ""}`} onClick={() => selectColor(group.value)}><strong>{group.value}</strong><small>{group.pieces.toLocaleString()} pieces available</small></button>)}
+                </div>
+              </section>}
+              {false && selectedColor && <section className="product-selection-step size-selection-step">
+                <div className="product-selection-title"><span>4</span><div><h3>Sizes & pieces</h3><p>Add pieces for each size.</p></div></div>
+                <div className="size-quantity-list">
+                  {colorProducts.map((product) => {
+                    const cartItem = cart.find((item) => item.productId === product._id);
+                    return <div className="size-quantity-row" key={product._id}><div><strong>{product.size}</strong><small>{product.productName} · {product.openingStock} {product.unit} available{cartItem ? ` · ${cartItem.quantity} in order` : ""}</small></div><label>Pieces<input type="number" min="1" max={product.openingStock} value={sizeQuantities[product._id] ?? cartItem?.quantity ?? ""} onChange={(event) => setSizeQuantities((quantities) => ({ ...quantities, [product._id]: event.target.value }))} /></label><button type="button" onClick={() => addSelectedProduct(product)}>Add</button></div>;
+                  })}
+                </div>
+              </section>}
+            </div>
+          </section>
+        </div>
+      )}
+      {selectedPackingQuantity && (
+        <div className="modal-backdrop product-modal-layer color-modal-layer" onMouseDown={() => selectPacking("")}>
+          <section className="product-selection-modal" role="dialog" aria-modal="true" aria-label="Select colour" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-title"><div><p className="eyebrow">{selectedStyle} · {selectedPackingQuantity} PACK</p><h2>Select colour</h2></div><button type="button" className="close-modal" onClick={() => selectPacking("")} aria-label="Back to packs"><FiX /></button></div>
+            <div className="product-selection-modal-body"><section className="product-selection-step"><div className="product-selection-title"><span>3</span><div><h3>Colour</h3><p>Select a colour for this pack.</p></div></div><div className="product-choice-grid">{groupBy(packingProducts, "color").map((group) => <button type="button" key={group.value} className={`product-choice-card ${selectedColor === group.value ? "is-selected" : ""}`} onClick={() => selectColor(group.value)}><strong>{group.value}</strong><small>{group.pieces.toLocaleString()} pieces available</small></button>)}</div></section></div>
+          </section>
+        </div>
+      )}
+      {selectedColor && (
+        <div className="modal-backdrop product-modal-layer size-modal-layer" onMouseDown={() => selectColor("")}>
+          <section className="product-selection-modal" role="dialog" aria-modal="true" aria-label="Select sizes" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-title"><div><p className="eyebrow">{selectedStyle} · {selectedPackingQuantity} PACK · {selectedColor}</p><h2>Sizes & pieces</h2></div><button type="button" className="close-modal" onClick={() => selectColor("")} aria-label="Back to colours"><FiX /></button></div>
+            <div className="product-selection-modal-body"><section className="product-selection-step size-selection-step"><div className="product-selection-title"><span>4</span><div><h3>Sizes & pieces</h3><p>Enter pieces for the sizes you need.</p></div></div><div className="size-quantity-list">{colorProducts.map((product) => { const cartItem = cart.find((item) => item.productId === product._id); return <div className="size-quantity-row" key={product._id}><div><strong>{product.size}</strong><small>{product.productName} · {product.openingStock} {product.unit} available{cartItem ? ` · ${cartItem.quantity} in order` : ""}</small></div><label>Pieces<input type="number" min="0" max={product.openingStock} value={sizeQuantities[product._id] ?? cartItem?.quantity ?? ""} onChange={(event) => setSizeQuantities((quantities) => ({ ...quantities, [product._id]: event.target.value }))} /></label></div>; })}</div><button type="button" className="add-all-sizes-button" onClick={addSelectedSizes}>Add selected sizes to order</button></section></div>
           </section>
         </div>
       )}
