@@ -1049,7 +1049,8 @@ td small {
   transform: translateY(-1px);
 }
 .product-table-wrap {
-  max-height: calc(100dvh - 250px);
+  height: clamp(260px, calc(100dvh - 500px), 620px);
+  max-height: none;
   min-height: 0;
   overflow-x: auto;
   overflow-y: auto;
