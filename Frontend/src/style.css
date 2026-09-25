@@ -3848,6 +3848,7 @@ label {
 }
 
 .product-image-upload {
+  position: relative;
   min-height: 34px;
   margin: 0;
   padding: 8px 10px;
@@ -3887,6 +3888,7 @@ label {
 
 .product-image-upload input {
   position: absolute;
+  inset: 0;
   width: 1px !important;
   height: 1px !important;
   min-height: 0 !important;
