@@ -342,11 +342,22 @@ header h1 {
 .notification-item { display: block; width: 100%; margin: 0; padding: 13px 14px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; color: var(--ink); text-align: left; }
 .notification-item:hover { background: color-mix(in srgb, var(--red) 7%, var(--surface)); }
 .notification-item.is-unread { border-left: 3px solid var(--red); background: color-mix(in srgb, var(--red) 5%, var(--surface)); }
+/* Override the theme's generic button gradient for notifications already read. */
+:root[data-theme] .notification-item.is-read {
+  background: color-mix(in srgb, var(--muted) 18%, var(--surface)) !important;
+  color: color-mix(in srgb, var(--ink) 74%, var(--muted)) !important;
+  border-left: 3px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  box-shadow: none !important;
+}
+:root[data-theme] .notification-item.is-read:hover {
+  background: color-mix(in srgb, var(--muted) 26%, var(--surface)) !important;
+}
+.notification-item.is-read strong { font-weight: 600; }
 .notification-item strong, .notification-item span, .notification-item small { display: block; }
 .notification-item strong { font-size: .8rem; }
 .notification-item span { margin-top: 4px; font-size: .75rem; line-height: 1.35; }
 .notification-item small { margin-top: 6px; color: var(--muted); font-size: .65rem; }
-.notification-toast { position: fixed; z-index: 200; right: 22px; bottom: 22px; display: flex; gap: 11px; align-items: flex-start; width: min(370px, calc(100vw - 32px)); padding: 15px; border: 1px solid rgba(255, 107, 53, .42); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 44px rgba(0, 0, 0, .25); animation: notification-slide-in .32s ease-out both; }
+.notification-toast { position: fixed; z-index: 200; right: 22px; bottom: 22px; display: flex; gap: 11px; align-items: flex-start; width: min(370px, calc(100vw - 32px)); padding: 15px; border: 1px solid rgba(255, 107, 53, .42); border-radius: 12px; background: var(--surface); box-shadow: 0 18px 44px rgba(0, 0, 0, .25); animation: notification-slide-in .32s ease-out both; cursor: pointer; }
 .notification-toast > svg { flex: 0 0 auto; margin-top: 2px; color: var(--red); font-size: 1.1rem; }
 .notification-toast strong, .notification-toast span { display: block; }
 .notification-toast strong { font-size: .84rem; }.notification-toast span { margin-top: 4px; font-size: .75rem; line-height: 1.35; }.notification-toast button { width: 26px; height: 26px; min-height: 26px; margin: -4px -4px 0 auto; padding: 0; border: 0; background: transparent; color: var(--muted); }
@@ -858,6 +869,14 @@ td small {
   letter-spacing: 0.2px;
   z-index: 13;
 }
+
+/* Keep the product screen aligned with the compact desktop sidebar. */
+.dashboard:has(aside.collapsed) ~ .inventory-overlay {
+  left: 76px;
+}
+.dashboard:has(aside.collapsed) ~ .inventory-overlay::before {
+  left: 76px;
+}
 .close-inventory {
   display: none;
 }
@@ -1122,11 +1141,25 @@ td small {
   position: fixed;
   top: 14px;
   right: clamp(24px, 4vw, 58px);
-  z-index: 14;
+  z-index: 102;
   display: flex;
   align-items: center;
   gap: 12px;
 }
+.product-back-button {
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  box-shadow: none !important;
+}
+.product-back-button svg { font-size: 1.15rem; }
 .product-header-actions .theme-toggle {
   width: auto;
   background: var(--surface);
@@ -2231,7 +2264,24 @@ label {
 .pending-order-total { padding-top: 12px; border-top: 1px solid var(--border); }
 .pending-order-total span { color: var(--muted); font-size: .78rem; }
 .pending-order-total strong { color: var(--red); }
+.cancel-pending-order,
+.reverse-order-button {
+  width: auto;
+  min-height: 38px;
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  background: transparent !important;
+  color: var(--red) !important;
+  border: 1px solid currentColor;
+  box-shadow: none !important;
+}
+.reverse-order-button {
+  width: 100%;
+  margin-top: 16px;
+}
 .factory-product-card {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -2250,6 +2300,8 @@ label {
 }
 .factory-product-image {
   height: 190px;
+  flex: 0 0 190px;
+  overflow: hidden;
   display: grid;
   place-items: center;
   background: var(--cream);
@@ -2257,12 +2309,16 @@ label {
   font-size: 2.1rem;
 }
 .factory-product-image img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 .factory-product-content {
+  position: static;
+  flex: 1 0 auto;
   padding: 16px;
+  background: var(--surface);
 }
 .factory-product-content > span {
   color: var(--red);
@@ -3426,11 +3482,35 @@ label {
 }
 
 @media (max-width: 760px) {
+  .dashboard-header:not(.is-hidden) {
+    overflow: visible;
+  }
+  .notification-dropdown {
+    position: fixed;
+    z-index: 160;
+    top: 66px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 82px);
+  }
+  .notification-list {
+    max-height: calc(100dvh - 154px);
+  }
+  .notification-toast {
+    right: 12px;
+    bottom: 16px;
+    left: 12px;
+    width: auto;
+    max-width: none;
+  }
   .inventory-overlay {
     inset: 0;
+    z-index: 100;
     padding: 96px 16px 36px;
   }
   .inventory-overlay::before {
+    z-index: 101;
     left: 0;
     height: 62px;
     padding: 0 16px;
@@ -3460,6 +3540,16 @@ label {
     top: 10px;
     right: 16px;
     gap: 8px;
+  }
+  .product-back-button {
+    width: 40px;
+    min-height: 40px;
+    height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .product-back-button span {
+    display: none;
   }
   .product-header-actions .theme-toggle {
     width: 40px;

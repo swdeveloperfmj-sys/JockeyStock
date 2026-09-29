@@ -311,8 +311,58 @@ app.get('/api/orders', async (req, res) => {
     ? {}
     : user.role === 'LOCATION_MANAGER'
       ? { location: user.location, status: 'PENDING' }
-      : { salesRepId: user._id };
+      : { salesRepId: user._id, status: 'PENDING' };
   res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(200));
+});
+
+const isTodayInSriLanka = (date) => {
+  const dateParts = (value) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(value);
+  return dateParts(date) === dateParts(new Date());
+};
+
+// Cancelling reverses the original stock deduction in the same transaction.
+// A Location Manager may cancel pending orders for their factory; a Sales Rep
+// may reverse only their own pending orders created today.
+app.post('/api/orders/:id/cancel', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['LOCATION_MANAGER', 'SALES_REP'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to cancel orders.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
+
+  const dbSession = await mongoose.startSession();
+  try {
+    let cancelledOrder;
+    await dbSession.withTransaction(async () => {
+      const order = await Order.findById(req.params.id).session(dbSession);
+      if (!order || order.status !== 'PENDING') throw new Error('This pending order is no longer available.');
+      if (user.role === 'LOCATION_MANAGER' && order.location !== user.location) throw new Error('This order does not belong to your factory.');
+      if (user.role === 'SALES_REP' && (String(order.salesRepId) !== String(user._id) || !isTodayInSriLanka(order.createdAt))) {
+        throw new Error('Sales Representatives can reverse only their own orders created today.');
+      }
+      for (const item of order.items) {
+        const restored = await Product.updateOne(
+          { _id: item.productId, plant: order.location },
+          { $inc: { openingStock: item.quantity } },
+          { session: dbSession }
+        );
+        if (!restored.matchedCount) throw new Error(`Unable to restore stock for ${item.productName}.`);
+      }
+      order.status = 'CANCELLED';
+      order.cancelledAt = new Date();
+      order.cancelledBy = user.name;
+      cancelledOrder = await order.save({ session: dbSession });
+    });
+    const changedProducts = await Product.find({ _id: { $in: cancelledOrder.items.map((item) => item.productId) } }).select('_id openingStock updatedAt');
+    publishStockUpdate(changedProducts);
+    publishOrderUpdate();
+    res.json(cancelledOrder);
+  } catch (error) {
+    res.status(error.message === 'This pending order is no longer available.' ? 409 : 400).json({ message: error.message || 'Unable to cancel the order.' });
+  } finally {
+    await dbSession.endSession();
+  }
 });
 
 app.get('/api/notifications', async (req, res) => {
