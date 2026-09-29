@@ -14,6 +14,7 @@ import {
   FiBarChart2,
   FiBell,
   FiBox,
+  FiCalendar,
   FiCamera,
   FiChevronLeft,
   FiChevronRight,
@@ -1454,22 +1455,11 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
       <div className="sales-history-filters">
         <label>
           Month
-          <input
-            type="month"
-            value={monthFilter}
-            onChange={(event) => {
-              setMonthFilter(event.target.value);
-              setDateFilter("");
-            }}
-          />
+          <span className="sales-date-input"><input type="month" value={monthFilter} onChange={(event) => { setMonthFilter(event.target.value); setDateFilter(""); }} /><FiCalendar aria-hidden="true" /></span>
         </label>
         <label>
           Date
-          <input
-            type="date"
-            value={dateFilter}
-            onChange={(event) => setDateFilter(event.target.value)}
-          />
+          <span className="sales-date-input"><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
         </label>
         {(monthFilter || dateFilter) && (
           <button

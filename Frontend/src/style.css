@@ -3141,6 +3141,27 @@ label {
   min-height: 40px;
   padding: 8px 10px;
 }
+.sales-date-input { position: relative; display: block; }
+.sales-date-input input { padding-right: 36px; }
+.sales-date-input > svg {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+:root[data-theme="dark"] .sales-date-input > svg { color: #d9e0ec; }
+:root[data-theme="dark"] .sales-history-filters input[type="date"],
+:root[data-theme="dark"] .sales-history-filters input[type="month"] {
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .sales-history-filters input::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+}
 .clear-sales-filter {
   width: auto;
   min-height: 40px;
