@@ -1373,12 +1373,14 @@ function SalesOrderPage({ onOrderCreated }) {
     </section>
   );
 }
-function SalesHistoryPage({ refreshKey }) {
+function SalesHistoryPage({ refreshKey, onOrderChanged }) {
   const [orders, setOrders] = useState([]),
     [error, setError] = useState(""),
     [monthFilter, setMonthFilter] = useState(""),
     [dateFilter, setDateFilter] = useState(""),
-    [selectedOrder, setSelectedOrder] = useState(null);
+    [selectedOrder, setSelectedOrder] = useState(null),
+    [reverseTarget, setReverseTarget] = useState(null),
+    [reversing, setReversing] = useState(false);
   useEffect(() => {
     fetch(`${API_URL}/orders`)
       .then(async (r) => {
@@ -1401,6 +1403,28 @@ function SalesHistoryPage({ refreshKey }) {
     (sum, order) => sum + Number(order.totalAmount || 0),
     0,
   );
+  const isToday = (date) => {
+    const value = new Date(date);
+    const today = new Date();
+    return value.getFullYear() === today.getFullYear() && value.getMonth() === today.getMonth() && value.getDate() === today.getDate();
+  };
+  const reverseOrder = async () => {
+    if (!reverseTarget) return;
+    setReversing(true);
+    try {
+      const response = await fetch(`${API_URL}/orders/${reverseTarget._id}/cancel`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.filter((order) => order._id !== reverseTarget._id));
+      setSelectedOrder(null);
+      setReverseTarget(null);
+      onOrderChanged();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setReversing(false);
+    }
+  };
   return (
     <section className="sales-page">
       <div className="page-title">
@@ -1568,9 +1592,15 @@ function SalesHistoryPage({ refreshKey }) {
                 })}
               </strong>
             </div>
+            {isToday(selectedOrder.createdAt) && (
+              <button type="button" className="reverse-order-button" onClick={() => setReverseTarget(selectedOrder)}>
+                Reverse today’s order
+              </button>
+            )}
           </section>
         </div>
       )}
+      {reverseTarget && <OrderCancellationConfirm order={reverseTarget} actionLabel="Reverse order" busy={reversing} onClose={() => setReverseTarget(null)} onConfirm={reverseOrder} />}
     </section>
   );
 }
@@ -1788,8 +1818,21 @@ function StockUpdatePage() {
     </section>
   );
 }
-function PendingOrdersPage() {
-  const [orders, setOrders] = useState([]), [error, setError] = useState("");
+function OrderCancellationConfirm({ order, actionLabel, busy, onClose, onConfirm }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="confirm-modal delete-confirm" role="dialog" aria-modal="true" aria-labelledby="order-cancel-title" onMouseDown={(event) => event.stopPropagation()}>
+      <p className="eyebrow">CONFIRM ORDER CANCELLATION</p>
+      <h2 id="order-cancel-title">{actionLabel} {order.orderNumber}?</h2>
+      <p>The order will be cancelled and all {order.totalQuantity} items will be restored to factory stock.</p>
+      <div className="modal-actions">
+        <button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Keep order</button>
+        <button type="button" className="confirm-button" disabled={busy} onClick={onConfirm}>{busy ? "Restoring stock..." : actionLabel}</button>
+      </div>
+    </section>
+  </div>;
+}
+function PendingOrdersPage({ refreshKey, onOrderChanged }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false);
   useEffect(() => {
     let active = true;
     const loadOrders = () => fetch(`${API_URL}/orders`)
@@ -1802,8 +1845,27 @@ function PendingOrdersPage() {
     loadOrders();
     const events = new EventSource(`${API_URL}/stock-events`, { withCredentials: true });
     events.addEventListener("order-update", loadOrders);
-    return () => { active = false; events.close(); };
-  }, []);
+    // SSE updates immediately in the normal case. Polling is a fallback for
+    // deployments that do not keep a server-sent-events connection alive.
+    const refreshTimer = window.setInterval(loadOrders, 10000);
+    return () => { active = false; events.close(); window.clearInterval(refreshTimer); };
+  }, [refreshKey]);
+  const cancelOrder = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      const response = await fetch(`${API_URL}/orders/${cancelTarget._id}/cancel`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.filter((order) => order._id !== cancelTarget._id));
+      setCancelTarget(null);
+      onOrderChanged();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setCancelling(false);
+    }
+  };
   return (
     <section className="pending-orders-page">
       <div className="page-title"><div><p className="eyebrow">SALES ORDERS</p><h1>Pending orders</h1><p className="page-description">Orders created by sales representatives for your location.</p></div></div>
@@ -1815,8 +1877,10 @@ function PendingOrdersPage() {
           <div className="pending-order-meta"><span><small>Sales rep</small>{order.salesRepName}</span><span><small>Phone</small>{order.customerPhone || "Not provided"}</span><span><small>Delivery address</small>{order.customerAddress}</span></div>
           <div className="pending-order-items">{order.items.map((item) => <div key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} pcs</b></div>)}</div>
           <div className="pending-order-total"><span>{order.totalQuantity} pieces</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+          <button type="button" className="cancel-pending-order" onClick={() => setCancelTarget(order)}>Cancel order</button>
         </article>)}
       </div> : <p className="empty-dashboard-state">No pending orders for this location.</p>}
+      {cancelTarget && <OrderCancellationConfirm order={cancelTarget} actionLabel="Cancel order" busy={cancelling} onClose={() => setCancelTarget(null)} onConfirm={cancelOrder} />}
     </section>
   );
 }
@@ -1863,7 +1927,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         if (showToast && data.find((notification) => !notification.readAt)) setToastNotification(data.find((notification) => !notification.readAt));
       } catch { /* Notifications must not block the dashboard. */ }
     };
-    loadNotifications(true);
+    // Existing unread items remain available from the bell menu. Do not show
+    // them again as a large toast whenever the page is refreshed.
+    loadNotifications();
     const events = new EventSource(`${API_URL}/stock-events`, { withCredentials: true });
     events.addEventListener("notification-update", () => {
       loadNotifications(true);
@@ -2138,7 +2204,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : view === "Stock Update" && locationManager ? (
       <StockUpdatePage />
     ) : view === "Pending Orders" && locationManager ? (
-      <PendingOrdersPage />
+      <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         onOrderCreated={() => {
@@ -2147,7 +2213,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         }}
       />
     ) : view === "Sales" && !admin && !locationManager ? (
-      <SalesHistoryPage refreshKey={orderRefreshKey} />
+      <SalesHistoryPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} />
     ) : (
       <>
         <section className="stats">
@@ -3927,9 +3993,19 @@ function ProductMaster({ open }) {
     </div>
   );
 }
-function ProductHeaderActions({ user, theme, setTheme }) {
+function ProductHeaderActions({ user, theme, setTheme, onClose }) {
   return (
     <div className="product-header-actions">
+      <button
+        type="button"
+        className="product-back-button"
+        onClick={onClose}
+        aria-label="Back to dashboard"
+        title="Back to dashboard"
+      >
+        <FiChevronLeft />
+        <span>Dashboard</span>
+      </button>
       <ThemeButton theme={theme} setTheme={setTheme} />
       <div className="avatar" title={user.name}>
         {user.name[0]}
@@ -3996,7 +4072,12 @@ function App() {
       <Dashboard user={user} onLogout={logout} theme={theme} setTheme={setT} />
       {user.role === "SUPER_ADMIN" && <ProductMaster open={inventory} />}{" "}
       {inventory && (
-        <ProductHeaderActions user={user} theme={theme} setTheme={setT} />
+        <ProductHeaderActions
+          user={user}
+          theme={theme}
+          setTheme={setT}
+          onClose={() => setInventory(false)}
+        />
       )}
     </>
   ) : (

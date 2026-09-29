@@ -20,7 +20,9 @@ const orderSchema = new mongoose.Schema({
   items: { type: [orderItemSchema], validate: [(items) => items.length > 0, 'At least one item is required.'] },
   totalQuantity: { type: Number, required: true, min: 1 },
   totalAmount: { type: Number, required: true, min: 0 },
-  status: { type: String, enum: ['PENDING', 'COMPLETED'], default: 'PENDING' }
+  status: { type: String, enum: ['PENDING', 'COMPLETED', 'CANCELLED'], default: 'PENDING' },
+  cancelledAt: { type: Date },
+  cancelledBy: { type: String, trim: true }
 }, { timestamps: true });
 
 export default mongoose.model('Order', orderSchema);
