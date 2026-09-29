@@ -717,8 +717,8 @@ function RolesPage() {
     </section>
   );
 }
-function SalesOrderPage({ onOrderCreated }) {
-  const draft = getOrderDraft();
+function SalesOrderPage({ onOrderCreated, editingOrder }) {
+  const draft = editingOrder ? {} : getOrderDraft();
   const [products, setProducts] = useState([]),
     [cart, setCart] = useState(() => draft.cart || []),
     [customerName, setCustomerName] = useState(() => draft.customerName || ""),
@@ -762,6 +762,18 @@ function SalesOrderPage({ onOrderCreated }) {
       .then(setProducts)
       .catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    if (!editingOrder || !products.length) return;
+    setCart(editingOrder.items.map((item) => {
+      const product = products.find((candidate) => candidate._id === item.productId);
+      return { productId: item.productId, product: product || { ...item, _id: item.productId }, quantity: item.quantity };
+    }));
+    setCustomerName(editingOrder.customerName);
+    setCustomerPhone(editingOrder.customerPhone || "");
+    setCustomerAddress(editingOrder.customerAddress);
+    setCustomerLocked(true);
+    sessionStorage.removeItem(ORDER_DRAFT_KEY);
+  }, [editingOrder, products]);
   useEffect(() => {
     const events = new EventSource(`${API_URL}/stock-events`, {
       withCredentials: true,
@@ -962,8 +974,8 @@ function SalesOrderPage({ onOrderCreated }) {
     setSaving(true);
     setError("");
     try {
-      const response = await fetch(`${API_URL}/orders`, {
-        method: "POST",
+      const response = await fetch(`${API_URL}/orders${editingOrder ? `/${editingOrder._id}` : ""}`, {
+        method: editingOrder ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerName,
@@ -995,9 +1007,9 @@ function SalesOrderPage({ onOrderCreated }) {
       <div className="page-title">
         <div>
           <p className="eyebrow">SALES</p>
-          <h1>Create order</h1>
+          <h1>{editingOrder ? "Edit order" : "Create order"}</h1>
           <p className="page-description">
-            Lock customer details, select products, then save the sales order.
+            {editingOrder ? "Update the order details and items, then save your changes." : "Lock customer details, select products, then save the sales order."}
           </p>
         </div>
         <button
@@ -1373,7 +1385,7 @@ function SalesOrderPage({ onOrderCreated }) {
     </section>
   );
 }
-function SalesHistoryPage({ refreshKey, onOrderChanged }) {
+function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
   const [orders, setOrders] = useState([]),
     [error, setError] = useState(""),
     [monthFilter, setMonthFilter] = useState(""),
@@ -1432,7 +1444,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged }) {
           <p className="eyebrow">SALES</p>
           <h1>My sales</h1>
           <p className="page-description">
-            Completed customer orders and sales totals.
+            Your customer orders and sales totals. Today’s orders can be cancelled.
           </p>
         </div>
         <strong className="sales-total">
@@ -1503,6 +1515,12 @@ function SalesHistoryPage({ refreshKey, onOrderChanged }) {
                     minimumFractionDigits: 2,
                   })}
                 </strong>
+                {isToday(order.createdAt) && (
+                  <div className="sales-order-actions">
+                    <button type="button" className="edit-sales-order" onClick={(event) => { event.stopPropagation(); onEditOrder(order); }} onKeyDown={(event) => event.stopPropagation()}>Edit order</button>
+                    <button type="button" className="cancel-sales-order" onClick={(event) => { event.stopPropagation(); setReverseTarget(order); }} onKeyDown={(event) => event.stopPropagation()}>Cancel order</button>
+                  </div>
+                )}
               </div>
             </article>
           ))}
@@ -1594,13 +1612,13 @@ function SalesHistoryPage({ refreshKey, onOrderChanged }) {
             </div>
             {isToday(selectedOrder.createdAt) && (
               <button type="button" className="reverse-order-button" onClick={() => setReverseTarget(selectedOrder)}>
-                Reverse today’s order
+                Cancel today’s order
               </button>
             )}
           </section>
         </div>
       )}
-      {reverseTarget && <OrderCancellationConfirm order={reverseTarget} actionLabel="Reverse order" busy={reversing} onClose={() => setReverseTarget(null)} onConfirm={reverseOrder} />}
+      {reverseTarget && <OrderCancellationConfirm order={reverseTarget} actionLabel="Cancel order" busy={reversing} onClose={() => setReverseTarget(null)} onConfirm={reverseOrder} />}
     </section>
   );
 }
@@ -1897,6 +1915,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [salesOrders, setSalesOrders] = useState([]),
     [salesOrdersError, setSalesOrdersError] = useState(""),
     [orderRefreshKey, setOrderRefreshKey] = useState(0),
+    [orderToEdit, setOrderToEdit] = useState(null),
     [salesProductFilters, setSalesProductFilters] = useState({
       search: "",
       category: "",
@@ -2213,13 +2232,15 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
+        editingOrder={orderToEdit}
         onOrderCreated={() => {
+          setOrderToEdit(null);
           setOrderRefreshKey((key) => key + 1);
           setV(locationManager ? "Pending Orders" : "Sales");
         }}
       />
     ) : view === "Sales" && !admin && !locationManager ? (
-      <SalesHistoryPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} />
+      <SalesHistoryPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
     ) : (
       <>
         <section className="stats">
@@ -2544,6 +2565,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
+                setOrderToEdit(null);
                 setV(l);
                 setM(false);
               }}

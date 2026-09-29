@@ -465,6 +465,61 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
+app.patch('/api/orders/:id', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SALES_REP') return res.status(403).json({ message: 'Only Sales Representatives can edit orders.' });
+  const { customerName, customerPhone = '', customerAddress, items } = req.body;
+  if (!mongoose.isValidObjectId(req.params.id) || !customerName?.trim() || !customerAddress?.trim() || !Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Customer name, address, and at least one order item are required.' });
+  }
+  if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
+    return res.status(400).json({ message: 'Each order item must have a valid product and quantity.' });
+  }
+  const dbSession = await mongoose.startSession();
+  try {
+    let updatedOrder;
+    let changedProductIds = [];
+    await dbSession.withTransaction(async () => {
+      const order = await Order.findById(req.params.id).session(dbSession);
+      if (!order || order.status !== 'PENDING' || String(order.salesRepId) !== String(user._id) || !isTodayInSriLanka(order.createdAt)) {
+        throw new Error('Only your pending orders created today can be edited.');
+      }
+      changedProductIds = order.items.map((item) => item.productId);
+      for (const oldItem of order.items) {
+        await Product.updateOne({ _id: oldItem.productId, plant: order.location }, { $inc: { openingStock: oldItem.quantity } }, { session: dbSession });
+      }
+      const requestedItems = await Promise.all(items.map(async (item) => {
+        const product = await Product.findById(item.productId).session(dbSession);
+        const quantity = Number(item.quantity);
+        if (!product || product.plant !== order.location) throw new Error('Products must belong to the original factory.');
+        if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
+        return { productId: product._id, productCode: product.productCode, productName: product.productName, quantity, unitPrice: Number(product.sellingPrice), total: Number(product.sellingPrice) * quantity, plant: product.plant };
+      }));
+      changedProductIds.push(...requestedItems.map((item) => item.productId));
+      for (const item of requestedItems) {
+        const result = await Product.updateOne({ _id: item.productId, openingStock: { $gte: item.quantity } }, { $inc: { openingStock: -item.quantity } }, { session: dbSession });
+        if (!result.modifiedCount) throw new Error('Product stock changed. Please review the order and try again.');
+      }
+      order.customerName = customerName.trim();
+      order.customerPhone = customerPhone.trim();
+      order.customerAddress = customerAddress.trim();
+      order.items = requestedItems;
+      order.totalQuantity = requestedItems.reduce((sum, item) => sum + item.quantity, 0);
+      order.totalAmount = requestedItems.reduce((sum, item) => sum + item.total, 0);
+      updatedOrder = await order.save({ session: dbSession });
+    });
+    const changedProducts = await Product.find({ _id: { $in: [...new Set(changedProductIds)] } }).select('_id openingStock updatedAt');
+    publishStockUpdate(changedProducts);
+    publishOrderUpdate();
+    res.json(updatedOrder);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to edit the sales order.' });
+  } finally {
+    await dbSession.endSession();
+  }
+});
+
 const userFields = ['name', 'username', 'email', 'contactNumber', 'location', 'role'];
 const safeUser = (user) => ({ id: user._id, name: user.name, username: user.username, email: user.email, contactNumber: user.contactNumber, location: user.location, role: user.role });
 
