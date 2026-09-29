@@ -56,9 +56,7 @@ const mailTransport = emailIsConfigured
 const smsIsConfigured = process.env.TEXTWARE_SMS_ENABLED === 'true' && Boolean(
   process.env.TEXTWARE_SMS_URL && process.env.TEXTWARE_SMS_USERNAME && process.env.TEXTWARE_SMS_PASSWORD && process.env.TEXTWARE_SMS_SENDER_ID
 );
-const deliverOrderNotification = async (recipient, order) => {
-  const subject = `New pending order ${order.orderNumber}`;
-  const message = `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`;
+const deliverMessage = async (recipient, subject, message) => {
   const deliveries = [];
   if (mailTransport && recipient.email) deliveries.push(mailTransport.sendMail({ from: process.env.EMAIL_FROM, to: recipient.email, subject, text: message }));
   if (smsIsConfigured && recipient.contactNumber) {
@@ -70,6 +68,11 @@ const deliverOrderNotification = async (recipient, order) => {
   const results = await Promise.allSettled(deliveries);
   results.filter((result) => result.status === 'rejected').forEach((result) => console.error('Notification delivery failed:', result.reason?.message || result.reason));
 };
+const deliverOrderNotification = (recipient, order) => deliverMessage(
+  recipient,
+  `New pending order ${order.orderNumber}`,
+  `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`
+);
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -321,6 +324,13 @@ const isTodayInSriLanka = (date) => {
   }).format(value);
   return dateParts(date) === dateParts(new Date());
 };
+const notifyOrderRecipients = async (recipients, title, message) => {
+  if (!recipients.length) return;
+  const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+  await Notification.insertMany(recipients.map((recipient) => ({ recipientId: recipient._id, title, message, type: 'ORDER', expiresAt })));
+  publishNotificationUpdate();
+  void Promise.all(recipients.map((recipient) => deliverMessage(recipient, title, message)));
+};
 
 // Cancelling reverses the original stock deduction in the same transaction.
 // A Location Manager may cancel pending orders for their factory; a Sales Rep
@@ -357,6 +367,11 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     const changedProducts = await Product.find({ _id: { $in: cancelledOrder.items.map((item) => item.productId) } }).select('_id openingStock updatedAt');
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
+    const recipients = user.role === 'SALES_REP'
+      ? await User.find({ role: 'LOCATION_MANAGER', location: cancelledOrder.location }).select('_id email contactNumber')
+      : await User.find({ _id: cancelledOrder.salesRepId }).select('_id email contactNumber');
+    try { await notifyOrderRecipients(recipients, `Order cancelled ${cancelledOrder.orderNumber}`, `${user.name} cancelled ${cancelledOrder.orderNumber}. ${cancelledOrder.totalQuantity} items were restored to stock.`); }
+    catch (notificationError) { console.error('Cancellation notification failed:', notificationError.message); }
     res.json(cancelledOrder);
   } catch (error) {
     res.status(error.message === 'This pending order is no longer available.' ? 409 : 400).json({ message: error.message || 'Unable to cancel the order.' });
@@ -512,6 +527,9 @@ app.patch('/api/orders/:id', async (req, res) => {
     const changedProducts = await Product.find({ _id: { $in: [...new Set(changedProductIds)] } }).select('_id openingStock updatedAt');
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
+    const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: updatedOrder.location }).select('_id email contactNumber');
+    try { await notifyOrderRecipients(locationManagers, `Order updated ${updatedOrder.orderNumber}`, `${user.name} updated ${updatedOrder.orderNumber} for ${updatedOrder.customerName}. Total: ${updatedOrder.totalQuantity} pieces, LKR ${Number(updatedOrder.totalAmount).toLocaleString()}.`); }
+    catch (notificationError) { console.error('Order-update notification failed:', notificationError.message); }
     res.json(updatedOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to edit the sales order.' });

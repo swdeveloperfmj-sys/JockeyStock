@@ -654,7 +654,10 @@ function SettingsPage({ type }) {
 }
 function RolesPage() {
   const [items, setI] = useState([]),
-    [error, setE] = useState("");
+    [error, setE] = useState(""),
+    [modal, setModal] = useState(undefined),
+    [roleName, setRoleName] = useState(""),
+    [saving, setSaving] = useState(false);
   const load = async () => {
     try {
       const r = await fetch(`${API_URL}/roles`),
@@ -668,19 +671,30 @@ function RolesPage() {
   useEffect(() => {
     load();
   }, []);
-  async function save(x) {
-    const name = window.prompt(
-      x ? "Edit role" : "New role name",
-      x?.name || "",
-    );
-    if (!name?.trim()) return;
-    const r = await fetch(`${API_URL}/roles${x ? `/${x._id}` : ""}`, {
-      method: x ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    if (r.ok) load();
-    else setE((await r.json()).message);
+  const openModal = (role = null) => {
+    setModal(role);
+    setRoleName(role?.name || "");
+    setE("");
+  };
+  async function save(event) {
+    event.preventDefault();
+    if (!roleName.trim()) return setE("Enter a role name.");
+    setSaving(true);
+    try {
+      const r = await fetch(`${API_URL}/roles${modal ? `/${modal._id}` : ""}`, {
+        method: modal ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: roleName.trim() }),
+      });
+      if (r.ok) {
+        setModal(undefined);
+        load();
+      } else setE((await r.json()).message);
+    } catch (requestError) {
+      setE(requestError.message);
+    } finally {
+      setSaving(false);
+    }
   }
   async function del(x) {
     if (!window.confirm(`Delete ${x.name}?`)) return;
@@ -695,7 +709,7 @@ function RolesPage() {
           <h1>Roles</h1>
           <p className="page-description">Maintain roles for team members.</p>
         </div>
-        <button className="add-user" onClick={() => save()}>
+        <button className="add-user" onClick={() => openModal()}>
           <FiPlusCircle /> Add role
         </button>
       </div>
@@ -705,7 +719,7 @@ function RolesPage() {
           <article key={x._id}>
             <strong>{x.name.replaceAll("_", " ")}</strong>
             <div className="table-actions">
-              <button onClick={() => save(x)}>
+              <button onClick={() => openModal(x)}>
                 <FiEdit2 />
               </button>
               <button className="delete-action" onClick={() => del(x)}>
@@ -715,6 +729,21 @@ function RolesPage() {
           </article>
         ))}
       </div>
+      {modal !== undefined && (
+        <div className="modal-backdrop" onMouseDown={() => setModal(undefined)}>
+          <section className="user-modal role-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-title">
+              <div><p className="eyebrow">ROLE MANAGEMENT</p><h2>{modal ? "Edit role" : "Add role"}</h2></div>
+              <button type="button" className="close-modal" onClick={() => setModal(undefined)} aria-label="Close"><FiX /></button>
+            </div>
+            <form className="user-form" onSubmit={save}>
+              <label>Role name<input autoFocus value={roleName} onChange={(event) => setRoleName(event.target.value)} placeholder="e.g. Warehouse Manager" required /></label>
+              {error && <p className="error">{error}</p>}
+              <div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setModal(undefined)}>Cancel</button><button className="confirm-button" disabled={saving}>{saving ? "Saving..." : modal ? "Save changes" : "Add role"}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
