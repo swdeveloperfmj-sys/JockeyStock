@@ -1915,6 +1915,12 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     setNotifications((items) => items.map((item) => item._id === notification._id ? { ...item, readAt: new Date().toISOString() } : item));
     try { await fetch(`${API_URL}/notifications/${notification._id}/read`, { method: "PATCH" }); } catch { /* The notification remains visible and will retry on another click. */ }
   };
+  const openNotification = (notification) => {
+    markNotificationRead(notification);
+    setNotificationsOpen(false);
+    setToastNotification(null);
+    if (notification.type === "ORDER" && locationManager) setV("Pending Orders");
+  };
   useEffect(() => {
     let active = true;
     const loadNotifications = async (showToast = false) => {
@@ -2179,7 +2185,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           </button>
           {notificationsOpen && <section className="notification-dropdown" aria-label="Notifications">
             <div className="notification-dropdown-title"><div><h2>Notifications</h2><small>{unreadNotifications.length} unread</small></div><button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications"><FiX /></button></div>
-            <div className="notification-list">{notifications.length ? notifications.map((notification) => <button type="button" key={notification._id} className={`notification-item ${notification.readAt ? "" : "is-unread"}`} onClick={() => markNotificationRead(notification)}><strong>{notification.title}</strong><span>{notification.message}</span><small>{new Date(notification.createdAt).toLocaleString()}</small></button>) : <p>No notifications yet.</p>}</div>
+            <div className="notification-list">{notifications.length ? notifications.map((notification) => <button type="button" key={notification._id} className={`notification-item ${notification.readAt ? "is-read" : "is-unread"}`} onClick={() => openNotification(notification)}><strong>{notification.title}</strong><span>{notification.message}</span><small>{new Date(notification.createdAt).toLocaleString()}</small></button>) : <p>No notifications yet.</p>}</div>
           </section>}
         </div>
         <ThemeButton theme={theme} setTheme={setTheme} />
@@ -2400,7 +2406,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     );
   return (
     <div className="dashboard">
-      {toastNotification && <aside className="notification-toast" role="status"><FiBell /><div><strong>{toastNotification.title}</strong><span>{toastNotification.message}</span></div><button type="button" onClick={() => setToastNotification(null)} aria-label="Dismiss notification"><FiX /></button></aside>}
+      {toastNotification && <div className="notification-toast" role="button" tabIndex="0" onClick={() => openNotification(toastNotification)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openNotification(toastNotification); }}><FiBell /><div><strong>{toastNotification.title}</strong><span>{toastNotification.message}</span></div><button type="button" onClick={(event) => { event.stopPropagation(); setToastNotification(null); }} aria-label="Dismiss notification"><FiX /></button></div>}
       {m && <button className="menu-overlay" onClick={() => setM(false)} />}{" "}
       {confirm && (
         <div className="modal-backdrop">
