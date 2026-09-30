@@ -35,6 +35,7 @@ import {
   FiX,
   FiMapPin,
   FiCodesandbox,
+  FiLayers,
 } from "react-icons/fi";
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
@@ -2166,7 +2167,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiBox, "Stock Update"],
           [FiFileText, "GRN"],
           [FiPlusCircle, "Create Order"],
-          [FiFileText, "Pending Orders"],
+          [FiLayers, "Pending Orders"],
         ]
       : [
           [FiBarChart2, "Dashboard"],
