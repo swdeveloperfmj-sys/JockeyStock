@@ -56,9 +56,7 @@ const mailTransport = emailIsConfigured
 const smsIsConfigured = process.env.TEXTWARE_SMS_ENABLED === 'true' && Boolean(
   process.env.TEXTWARE_SMS_URL && process.env.TEXTWARE_SMS_USERNAME && process.env.TEXTWARE_SMS_PASSWORD && process.env.TEXTWARE_SMS_SENDER_ID
 );
-const deliverOrderNotification = async (recipient, order) => {
-  const subject = `New pending order ${order.orderNumber}`;
-  const message = `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`;
+const deliverMessage = async (recipient, subject, message) => {
   const deliveries = [];
   if (mailTransport && recipient.email) deliveries.push(mailTransport.sendMail({ from: process.env.EMAIL_FROM, to: recipient.email, subject, text: message }));
   if (smsIsConfigured && recipient.contactNumber) {
@@ -70,6 +68,11 @@ const deliverOrderNotification = async (recipient, order) => {
   const results = await Promise.allSettled(deliveries);
   results.filter((result) => result.status === 'rejected').forEach((result) => console.error('Notification delivery failed:', result.reason?.message || result.reason));
 };
+const deliverOrderNotification = (recipient, order) => deliverMessage(
+  recipient,
+  `New pending order ${order.orderNumber}`,
+  `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`
+);
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -321,6 +324,13 @@ const isTodayInSriLanka = (date) => {
   }).format(value);
   return dateParts(date) === dateParts(new Date());
 };
+const notifyOrderRecipients = async (recipients, title, message) => {
+  if (!recipients.length) return;
+  const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+  await Notification.insertMany(recipients.map((recipient) => ({ recipientId: recipient._id, title, message, type: 'ORDER', expiresAt })));
+  publishNotificationUpdate();
+  void Promise.all(recipients.map((recipient) => deliverMessage(recipient, title, message)));
+};
 
 // Cancelling reverses the original stock deduction in the same transaction.
 // A Location Manager may cancel pending orders for their factory; a Sales Rep
@@ -357,6 +367,11 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     const changedProducts = await Product.find({ _id: { $in: cancelledOrder.items.map((item) => item.productId) } }).select('_id openingStock updatedAt');
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
+    const recipients = user.role === 'SALES_REP'
+      ? await User.find({ role: 'LOCATION_MANAGER', location: cancelledOrder.location }).select('_id email contactNumber')
+      : await User.find({ _id: cancelledOrder.salesRepId }).select('_id email contactNumber');
+    try { await notifyOrderRecipients(recipients, `Order cancelled ${cancelledOrder.orderNumber}`, `${user.name} cancelled ${cancelledOrder.orderNumber}. ${cancelledOrder.totalQuantity} items were restored to stock.`); }
+    catch (notificationError) { console.error('Cancellation notification failed:', notificationError.message); }
     res.json(cancelledOrder);
   } catch (error) {
     res.status(error.message === 'This pending order is no longer available.' ? 409 : 400).json({ message: error.message || 'Unable to cancel the order.' });
@@ -460,6 +475,64 @@ app.post('/api/orders', async (req, res) => {
     res.status(201).json(createdOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to create the sales order.' });
+  } finally {
+    await dbSession.endSession();
+  }
+});
+
+app.patch('/api/orders/:id', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SALES_REP') return res.status(403).json({ message: 'Only Sales Representatives can edit orders.' });
+  const { customerName, customerPhone = '', customerAddress, items } = req.body;
+  if (!mongoose.isValidObjectId(req.params.id) || !customerName?.trim() || !customerAddress?.trim() || !Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Customer name, address, and at least one order item are required.' });
+  }
+  if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
+    return res.status(400).json({ message: 'Each order item must have a valid product and quantity.' });
+  }
+  const dbSession = await mongoose.startSession();
+  try {
+    let updatedOrder;
+    let changedProductIds = [];
+    await dbSession.withTransaction(async () => {
+      const order = await Order.findById(req.params.id).session(dbSession);
+      if (!order || order.status !== 'PENDING' || String(order.salesRepId) !== String(user._id) || !isTodayInSriLanka(order.createdAt)) {
+        throw new Error('Only your pending orders created today can be edited.');
+      }
+      changedProductIds = order.items.map((item) => item.productId);
+      for (const oldItem of order.items) {
+        await Product.updateOne({ _id: oldItem.productId, plant: order.location }, { $inc: { openingStock: oldItem.quantity } }, { session: dbSession });
+      }
+      const requestedItems = await Promise.all(items.map(async (item) => {
+        const product = await Product.findById(item.productId).session(dbSession);
+        const quantity = Number(item.quantity);
+        if (!product || product.plant !== order.location) throw new Error('Products must belong to the original factory.');
+        if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
+        return { productId: product._id, productCode: product.productCode, productName: product.productName, quantity, unitPrice: Number(product.sellingPrice), total: Number(product.sellingPrice) * quantity, plant: product.plant };
+      }));
+      changedProductIds.push(...requestedItems.map((item) => item.productId));
+      for (const item of requestedItems) {
+        const result = await Product.updateOne({ _id: item.productId, openingStock: { $gte: item.quantity } }, { $inc: { openingStock: -item.quantity } }, { session: dbSession });
+        if (!result.modifiedCount) throw new Error('Product stock changed. Please review the order and try again.');
+      }
+      order.customerName = customerName.trim();
+      order.customerPhone = customerPhone.trim();
+      order.customerAddress = customerAddress.trim();
+      order.items = requestedItems;
+      order.totalQuantity = requestedItems.reduce((sum, item) => sum + item.quantity, 0);
+      order.totalAmount = requestedItems.reduce((sum, item) => sum + item.total, 0);
+      updatedOrder = await order.save({ session: dbSession });
+    });
+    const changedProducts = await Product.find({ _id: { $in: [...new Set(changedProductIds)] } }).select('_id openingStock updatedAt');
+    publishStockUpdate(changedProducts);
+    publishOrderUpdate();
+    const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: updatedOrder.location }).select('_id email contactNumber');
+    try { await notifyOrderRecipients(locationManagers, `Order updated ${updatedOrder.orderNumber}`, `${user.name} updated ${updatedOrder.orderNumber} for ${updatedOrder.customerName}. Total: ${updatedOrder.totalQuantity} pieces, LKR ${Number(updatedOrder.totalAmount).toLocaleString()}.`); }
+    catch (notificationError) { console.error('Order-update notification failed:', notificationError.message); }
+    res.json(updatedOrder);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to edit the sales order.' });
   } finally {
     await dbSession.endSession();
   }
