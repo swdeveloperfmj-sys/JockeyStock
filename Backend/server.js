@@ -14,10 +14,35 @@ import Role from './models/Role.js';
 import Product from './models/Product.js';
 import Order from './models/Order.js';
 import Notification from './models/Notification.js';
+import StockUpdate from './models/StockUpdate.js';
+import Counter from './models/Counter.js';
+import GoodsReceivedNote from './models/GoodsReceivedNote.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
+const INVENTORY_LOCATION = 'Head Office';
+const LEGACY_INVENTORY_LOCATION = 'FMJ New Plant';
 let databaseConnection;
+let inventoryLocationMigration;
+const migrateInventoryLocation = async () => {
+  if (inventoryLocationMigration) return inventoryLocationMigration;
+  inventoryLocationMigration = (async () => {
+    // The original FMJ New Plant inventory is now operated from Head Office.
+    // Use the collection directly because `plant` is immutable on Product.
+    await Product.collection.updateMany(
+      { plant: LEGACY_INVENTORY_LOCATION },
+      { $set: { plant: INVENTORY_LOCATION } }
+    );
+    await Order.updateMany(
+      { location: LEGACY_INVENTORY_LOCATION },
+      { $set: { location: INVENTORY_LOCATION } }
+    );
+  })().catch((error) => {
+    inventoryLocationMigration = undefined;
+    throw error;
+  });
+  return inventoryLocationMigration;
+};
 const connectDatabase = async () => {
   if (mongoose.connection.readyState === 1) return mongoose.connection;
   if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is missing. Add it to your deployment environment variables.');
@@ -25,7 +50,9 @@ const connectDatabase = async () => {
     databaseConnection = mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
       .catch((error) => { databaseConnection = undefined; throw error; });
   }
-  return databaseConnection;
+  const connection = await databaseConnection;
+  await migrateInventoryLocation();
+  return connection;
 };
 const stockEventClients = new Set();
 const publishNotificationUpdate = () => {
@@ -245,7 +272,7 @@ app.post('/api/auth/login', async (req, res) => {
     req.session.save((saveError) => {
       if (saveError) return res.status(500).json({ message: 'Unable to save the login session.' });
       return res.json({
-        user: { id: user._id, name: user.name, username: user.username, email: user.email, role: user.role },
+        user: { id: user._id, name: user.name, username: user.username, email: user.email, location: user.location, role: user.role },
         expiresAt: Date.now() + sessionMaxAge
       });
     });
@@ -636,11 +663,166 @@ app.post('/api/products/:id/stock', async (req, res) => {
     { new: true, runValidators: true }
   );
   if (!product) return res.status(404).json({ message: 'Product not found in your factory.' });
+  await StockUpdate.create({
+    productId: product._id,
+    productCode: product.productCode,
+    productName: product.productName,
+    quantityAdded: quantity,
+    resultingStock: product.openingStock,
+    location: user.location,
+    managerId: user._id,
+    managerName: user.name
+  });
   publishStockUpdate([product]);
   res.json(product);
 });
+app.patch('/api/products/:id/stock', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can correct stock quantities.' });
+  const quantity = Number(req.body.quantity);
+  if (!Number.isInteger(quantity) || quantity < 0) return res.status(400).json({ message: 'Enter a whole quantity of zero or more.' });
+  const current = await Product.findById(req.params.id);
+  if (!current) return res.status(404).json({ message: 'Product not found.' });
+  const quantityChange = quantity - Number(current.openingStock || 0);
+  const product = await Product.findByIdAndUpdate(req.params.id, { $set: { openingStock: quantity } }, { new: true, runValidators: true });
+  if (quantityChange !== 0) await StockUpdate.create({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: quantityChange, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name });
+  publishStockUpdate([product]);
+  res.json(product);
+});
+app.get('/api/stock-updates', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view stock update history.' });
+  res.json(await StockUpdate.find().sort({ createdAt: -1 }).limit(500));
+});
+const formatGrnNumber = (value, counter = {}) => {
+  const prefix = counter.prefix ?? 'GRN-';
+  const padding = Number(counter.padding || 6);
+  return `${prefix}${String(value).padStart(padding, '0')}`;
+};
+app.get('/api/grns/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the GRN number series.' });
+  const counter = await Counter.findOne({ key: 'GRN' }).lean();
+  const settings = counter || { value: 0, prefix: 'GRN-', padding: 6 };
+  res.json({
+    prefix: settings.prefix ?? 'GRN-',
+    padding: Number(settings.padding || 6),
+    currentNumber: Number(settings.value || 0) > 0 ? formatGrnNumber(settings.value, settings) : null,
+    nextNumber: formatGrnNumber(Number(settings.value || 0) + 1, settings)
+  });
+});
+app.put('/api/grns/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the GRN number series.' });
+
+  const nextNumber = String(req.body.nextNumber || '').trim().toUpperCase();
+  const match = nextNumber.match(/^(.*?)(\d+)$/);
+  if (!match || nextNumber.length > 50) return res.status(400).json({ message: 'Enter a pattern ending with numbers, for example GRN-000001.' });
+  const [, prefix, digits] = match;
+  const startingValue = Number(digits);
+  if (!Number.isSafeInteger(startingValue) || startingValue < 1 || digits.length > 12) return res.status(400).json({ message: 'The GRN starting number must be between 1 and 12 digits.' });
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existingNumbers = await GoodsReceivedNote.find({ grnNumber: new RegExp(`^${escapedPrefix}\\d+$`, 'i') }).select('grnNumber').lean();
+  const highestExisting = existingNumbers.reduce((highest, grn) => {
+    const suffix = String(grn.grnNumber).slice(prefix.length);
+    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
+  }, 0);
+  if (startingValue <= highestExisting) return res.status(409).json({ message: `The next number must be greater than the existing ${formatGrnNumber(highestExisting, { prefix, padding: digits.length })}.` });
+
+  const counter = await Counter.findOneAndUpdate(
+    { key: 'GRN' },
+    { $set: { value: startingValue - 1, prefix, padding: digits.length } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({
+    prefix: counter.prefix,
+    padding: counter.padding,
+    currentNumber: counter.value > 0 ? formatGrnNumber(counter.value, counter) : null,
+    nextNumber: formatGrnNumber(counter.value + 1, counter)
+  });
+});
+app.get('/api/grns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view GRN reports.' });
+
+  const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
+  const { from, to } = req.query;
+  if (from || to) {
+    filter.grnDate = {};
+    if (from) {
+      const fromDate = new Date(`${from}T00:00:00.000Z`);
+      if (Number.isNaN(fromDate.getTime())) return res.status(400).json({ message: 'Invalid from date.' });
+      filter.grnDate.$gte = fromDate;
+    }
+    if (to) {
+      const toDate = new Date(`${to}T23:59:59.999Z`);
+      if (Number.isNaN(toDate.getTime())) return res.status(400).json({ message: 'Invalid to date.' });
+      filter.grnDate.$lte = toDate;
+    }
+  }
+
+  res.json(await GoodsReceivedNote.find(filter).sort({ grnDate: -1, createdAt: -1 }).lean());
+});
+app.get('/api/grns/next-number', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create GRNs.' });
+  const counter = await Counter.findOne({ key: 'GRN' });
+  res.json({ grnNumber: formatGrnNumber((counter?.value || 0) + 1, counter || {}) });
+});
+app.post('/api/grns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create GRNs.' });
+  const { supplierCode, supplierName, remarks = '', grnDate, location, items } = req.body;
+  if (!supplierCode?.trim() || !supplierName?.trim() || !grnDate || !location?.trim() || !Array.isArray(items) || !items.length) return res.status(400).json({ message: 'Supplier, GRN date, location, and at least one item are required.' });
+  if (user.role === 'LOCATION_MANAGER' && location !== user.location) return res.status(403).json({ message: 'Location Managers can create GRNs only for their own location.' });
+  if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.costPrice) < 0 || Number(item.sellingPrice) < 0)) return res.status(400).json({ message: 'Each item needs a valid product, quantity, and prices.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let grn;
+    let changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      const counter = await Counter.findOneAndUpdate({ key: 'GRN' }, { $inc: { value: 1 } }, { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession });
+      const grnItems = [];
+      for (const item of items) {
+        const product = await Product.findOne({ _id: item.productId, plant: location }).session(dbSession);
+        if (!product) throw new Error('One of the selected products does not belong to this location.');
+        const quantity = Number(item.quantity), costPrice = Number(item.costPrice), sellingPrice = Number(item.sellingPrice);
+        const updated = await Product.findByIdAndUpdate(
+          product._id,
+          { $inc: { openingStock: quantity } },
+          { new: true, runValidators: true, session: dbSession }
+        );
+        changedProducts.push(updated);
+        grnItems.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantity, costPrice, sellingPrice, amount: quantity * costPrice });
+      }
+      const totalQuantity = grnItems.reduce((total, item) => total + item.quantity, 0);
+      const totalAmount = grnItems.reduce((total, item) => total + item.amount, 0);
+      [grn] = await GoodsReceivedNote.create([{ grnNumber: formatGrnNumber(counter.value, counter), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), remarks: remarks.trim(), grnDate: new Date(grnDate), location, createdById: user._id, createdByName: user.name, items: grnItems, totalQuantity, totalAmount }], { session: dbSession });
+      await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
+    });
+    publishStockUpdate(changedProducts);
+    res.status(201).json({
+      ...grn.toObject(),
+      updatedProducts: changedProducts.map((product) => ({
+        productId: String(product._id),
+        openingStock: product.openingStock
+      }))
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to save GRN.' });
+  } finally { await dbSession.endSession(); }
+});
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));
+  data.plant = INVENTORY_LOCATION;
   data.gender = normalizeGender(data.gender);
   if (!/^\d{13}$/.test(data.productCode || '')) return res.status(400).json({ message: 'Product Code must contain exactly 13 numbers.' });
   const productDetails = parseProductName(data.productName);
@@ -713,6 +895,7 @@ app.post('/api/products/bulk', async (req, res) => {
       sku: data.productCode,
       name: productDetails.productName,
       category: data.categoryCode,
+      plant: INVENTORY_LOCATION,
       _sourceRow: rowNumber
     });
     candidates.push(data);
