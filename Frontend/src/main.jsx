@@ -16,6 +16,7 @@ import {
   FiBox,
   FiCalendar,
   FiCamera,
+  FiChevronDown,
   FiChevronLeft,
   FiChevronRight,
   FiDownload,
@@ -32,9 +33,13 @@ import {
   FiUserPlus,
   FiUsers,
   FiX,
+  FiMapPin,
+  FiCodesandbox,
 } from "react-icons/fi";
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
+import GrnReportPage from "./GrnReportPage.jsx";
+import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import logoUrl from "../assets/LOGO.png";
 import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -42,6 +47,12 @@ const SIGN_IN_LOADER =
   "https://assets2.lottiefiles.com/packages/lf20_usmfx6bp.json";
 const SESSION_EXPIRED_EVENT = "jockey-session-expired";
 const ORDER_DRAFT_KEY = "jockey-order-draft";
+const getTimeGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+};
 const getOrderDraft = () => {
   try {
     return JSON.parse(sessionStorage.getItem(ORDER_DRAFT_KEY) || "{}");
@@ -2064,6 +2075,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [headerHidden, setHeaderHidden] = useState(false),
     [confirm, setConfirm] = useState(false),
     [view, setV] = useState("Dashboard"),
+    [timeGreeting, setTimeGreeting] = useState(getTimeGreeting),
+    [reportOpen, setReportOpen] = useState(false),
+    [inventorySalesOpen, setInventorySalesOpen] = useState(false),
+    [transactionInquiryOpen, setTransactionInquiryOpen] = useState(false),
     [dashboardData, setDashboardData] = useState(null),
     [dashboardError, setDashboardError] = useState(""),
     [salesProducts, setSalesProducts] = useState([]),
@@ -2084,6 +2099,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [toastNotification, setToastNotification] = useState(null),
     admin = user.role === "SUPER_ADMIN",
     locationManager = user.role === "LOCATION_MANAGER";
+  useEffect(() => {
+    const updateGreeting = () => setTimeGreeting(getTimeGreeting());
+    const timer = window.setInterval(updateGreeting, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const unreadNotifications = notifications.filter((notification) => !notification.readAt);
   const markNotificationRead = async (notification) => {
     if (notification.readAt) return;
@@ -2131,13 +2151,13 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   }, [toastNotification]);
   const links = admin
     ? [
-        [FiBarChart2, "Dashboard"],
+        [FiCodesandbox, "Dashboard"],
         [FiBox, "Inventory"],
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
-        [FiFileText, "Sales"],
+        [FiBarChart2 , "Sales"],
         [FiUsers, "Users"],
-        [FiBox, "Locations"],
+        [FiMapPin, "Locations"],
         [FiUsers, "Roles"],
       ]
     : locationManager
@@ -2345,6 +2365,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Review stock update history."
             : view === "GRN"
               ? "Create a goods received note."
+            : view === "GRN Report"
+              ? "Goods received note report."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -2353,7 +2375,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 ? "Create sales order."
                 : view === "Sales"
                   ? "Sales history."
-                  : `Good morning, ${user.name.split(" ")[0]}.`}
+                  : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
       <div className="header-actions">
@@ -2389,6 +2411,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <StockUpdatesHistoryPage />
     ) : view === "GRN" && (admin || locationManager) ? (
       <GrnPageNew user={user} />
+    ) : view === "GRN Report" && (admin || locationManager) ? (
+      <GrnReportPage user={user} />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
@@ -2431,6 +2455,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         {admin && dashboardError && (
           <p className="dashboard-error">{dashboardError}</p>
         )}
+        {admin && view === "Dashboard" && <GrnSeriesSettings />}
         {!admin && view === "Dashboard" && (
           <section className="sales-product-catalog">
             <div className="sales-product-catalog-heading">
@@ -2733,6 +2758,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               onClick={(e) => {
                 e.preventDefault();
                 setOrderToEdit(null);
+                setReportOpen(false);
+                setInventorySalesOpen(false);
+                setTransactionInquiryOpen(false);
                 setV(l);
                 setM(false);
               }}
@@ -2741,6 +2769,68 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
+          {(admin || locationManager) && (
+            <div className="sidebar-menu-group">
+              <button
+                type="button"
+                className="sidebar-menu-trigger"
+                aria-expanded={reportOpen}
+                onClick={() => {
+                  if (c && window.innerWidth > 760) {
+                    setC(false);
+                    setReportOpen(true);
+                    return;
+                  }
+                  setReportOpen((open) => !open);
+                }}
+              >
+                <FiBarChart2 />
+                <span>Report</span>
+                <FiChevronDown className={`sidebar-menu-chevron${reportOpen ? " is-open" : ""}`} />
+              </button>
+              {reportOpen && (
+                <div className="sidebar-submenu">
+                  <button
+                    type="button"
+                    className="sidebar-menu-trigger sidebar-submenu-trigger"
+                    aria-expanded={inventorySalesOpen}
+                    onClick={() => setInventorySalesOpen((open) => !open)}
+                  >
+                    <span>Inventory &amp; Sales</span>
+                    <FiChevronDown className={`sidebar-menu-chevron${inventorySalesOpen ? " is-open" : ""}`} />
+                  </button>
+                  {inventorySalesOpen && (
+                    <div className="sidebar-submenu sidebar-submenu-deep">
+                      <button
+                        type="button"
+                        className="sidebar-menu-trigger sidebar-submenu-trigger"
+                        aria-expanded={transactionInquiryOpen}
+                        onClick={() => setTransactionInquiryOpen((open) => !open)}
+                      >
+                        <span>Transaction Inquiry</span>
+                        <FiChevronDown className={`sidebar-menu-chevron${transactionInquiryOpen ? " is-open" : ""}`} />
+                      </button>
+                      {transactionInquiryOpen && (
+                        <a
+                          className={`sidebar-report-link${view === "GRN Report" ? " active" : ""}`}
+                          href="#"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            setOrderToEdit(null);
+                            setV("GRN Report");
+                            setM(false);
+                          }}
+                        >
+                          <FiFileText />
+                          <span>Goods Received Note (GRN)</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
         <div className="side-actions">
           <button className="logout" onClick={() => setConfirm(true)}>

@@ -696,13 +696,85 @@ app.get('/api/stock-updates', async (req, res) => {
   if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view stock update history.' });
   res.json(await StockUpdate.find().sort({ createdAt: -1 }).limit(500));
 });
-const formatGrnNumber = (value) => `GRN-${String(value).padStart(6, '0')}`;
+const formatGrnNumber = (value, counter = {}) => {
+  const prefix = counter.prefix ?? 'GRN-';
+  const padding = Number(counter.padding || 6);
+  return `${prefix}${String(value).padStart(padding, '0')}`;
+};
+app.get('/api/grns/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the GRN number series.' });
+  const counter = await Counter.findOne({ key: 'GRN' }).lean();
+  const settings = counter || { value: 0, prefix: 'GRN-', padding: 6 };
+  res.json({
+    prefix: settings.prefix ?? 'GRN-',
+    padding: Number(settings.padding || 6),
+    currentNumber: Number(settings.value || 0) > 0 ? formatGrnNumber(settings.value, settings) : null,
+    nextNumber: formatGrnNumber(Number(settings.value || 0) + 1, settings)
+  });
+});
+app.put('/api/grns/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the GRN number series.' });
+
+  const nextNumber = String(req.body.nextNumber || '').trim().toUpperCase();
+  const match = nextNumber.match(/^(.*?)(\d+)$/);
+  if (!match || nextNumber.length > 50) return res.status(400).json({ message: 'Enter a pattern ending with numbers, for example GRN-000001.' });
+  const [, prefix, digits] = match;
+  const startingValue = Number(digits);
+  if (!Number.isSafeInteger(startingValue) || startingValue < 1 || digits.length > 12) return res.status(400).json({ message: 'The GRN starting number must be between 1 and 12 digits.' });
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existingNumbers = await GoodsReceivedNote.find({ grnNumber: new RegExp(`^${escapedPrefix}\\d+$`, 'i') }).select('grnNumber').lean();
+  const highestExisting = existingNumbers.reduce((highest, grn) => {
+    const suffix = String(grn.grnNumber).slice(prefix.length);
+    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
+  }, 0);
+  if (startingValue <= highestExisting) return res.status(409).json({ message: `The next number must be greater than the existing ${formatGrnNumber(highestExisting, { prefix, padding: digits.length })}.` });
+
+  const counter = await Counter.findOneAndUpdate(
+    { key: 'GRN' },
+    { $set: { value: startingValue - 1, prefix, padding: digits.length } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({
+    prefix: counter.prefix,
+    padding: counter.padding,
+    currentNumber: counter.value > 0 ? formatGrnNumber(counter.value, counter) : null,
+    nextNumber: formatGrnNumber(counter.value + 1, counter)
+  });
+});
+app.get('/api/grns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view GRN reports.' });
+
+  const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
+  const { from, to } = req.query;
+  if (from || to) {
+    filter.grnDate = {};
+    if (from) {
+      const fromDate = new Date(`${from}T00:00:00.000Z`);
+      if (Number.isNaN(fromDate.getTime())) return res.status(400).json({ message: 'Invalid from date.' });
+      filter.grnDate.$gte = fromDate;
+    }
+    if (to) {
+      const toDate = new Date(`${to}T23:59:59.999Z`);
+      if (Number.isNaN(toDate.getTime())) return res.status(400).json({ message: 'Invalid to date.' });
+      filter.grnDate.$lte = toDate;
+    }
+  }
+
+  res.json(await GoodsReceivedNote.find(filter).sort({ grnDate: -1, createdAt: -1 }).lean());
+});
 app.get('/api/grns/next-number', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create GRNs.' });
   const counter = await Counter.findOne({ key: 'GRN' });
-  res.json({ grnNumber: formatGrnNumber((counter?.value || 0) + 1) });
+  res.json({ grnNumber: formatGrnNumber((counter?.value || 0) + 1, counter || {}) });
 });
 app.post('/api/grns', async (req, res) => {
   const user = await currentUser(req);
@@ -733,7 +805,7 @@ app.post('/api/grns', async (req, res) => {
       }
       const totalQuantity = grnItems.reduce((total, item) => total + item.quantity, 0);
       const totalAmount = grnItems.reduce((total, item) => total + item.amount, 0);
-      [grn] = await GoodsReceivedNote.create([{ grnNumber: formatGrnNumber(counter.value), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), remarks: remarks.trim(), grnDate: new Date(grnDate), location, createdById: user._id, createdByName: user.name, items: grnItems, totalQuantity, totalAmount }], { session: dbSession });
+      [grn] = await GoodsReceivedNote.create([{ grnNumber: formatGrnNumber(counter.value, counter), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), remarks: remarks.trim(), grnDate: new Date(grnDate), location, createdById: user._id, createdByName: user.name, items: grnItems, totalQuantity, totalAmount }], { session: dbSession });
       await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
     });
     publishStockUpdate(changedProducts);
