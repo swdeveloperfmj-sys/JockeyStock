@@ -676,6 +676,20 @@ app.post('/api/products/:id/stock', async (req, res) => {
   publishStockUpdate([product]);
   res.json(product);
 });
+app.patch('/api/products/:id/stock', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can correct stock quantities.' });
+  const quantity = Number(req.body.quantity);
+  if (!Number.isInteger(quantity) || quantity < 0) return res.status(400).json({ message: 'Enter a whole quantity of zero or more.' });
+  const current = await Product.findById(req.params.id);
+  if (!current) return res.status(404).json({ message: 'Product not found.' });
+  const quantityChange = quantity - Number(current.openingStock || 0);
+  const product = await Product.findByIdAndUpdate(req.params.id, { $set: { openingStock: quantity } }, { new: true, runValidators: true });
+  if (quantityChange !== 0) await StockUpdate.create({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: quantityChange, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name });
+  publishStockUpdate([product]);
+  res.json(product);
+});
 app.get('/api/stock-updates', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -709,7 +723,11 @@ app.post('/api/grns', async (req, res) => {
         const product = await Product.findOne({ _id: item.productId, plant: location }).session(dbSession);
         if (!product) throw new Error('One of the selected products does not belong to this location.');
         const quantity = Number(item.quantity), costPrice = Number(item.costPrice), sellingPrice = Number(item.sellingPrice);
-        const updated = await Product.findByIdAndUpdate(product._id, { $inc: { openingStock: quantity }, $set: { costPrice, sellingPrice } }, { new: true, session: dbSession });
+        const updated = await Product.findByIdAndUpdate(
+          product._id,
+          { $inc: { openingStock: quantity } },
+          { new: true, runValidators: true, session: dbSession }
+        );
         changedProducts.push(updated);
         grnItems.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantity, costPrice, sellingPrice, amount: quantity * costPrice });
       }
@@ -719,7 +737,13 @@ app.post('/api/grns', async (req, res) => {
       await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
     });
     publishStockUpdate(changedProducts);
-    res.status(201).json(grn);
+    res.status(201).json({
+      ...grn.toObject(),
+      updatedProducts: changedProducts.map((product) => ({
+        productId: String(product._id),
+        openingStock: product.openingStock
+      }))
+    });
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to save GRN.' });
   } finally { await dbSession.endSession(); }

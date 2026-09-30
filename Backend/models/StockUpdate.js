@@ -4,7 +4,7 @@ const stockUpdateSchema = new mongoose.Schema({
   productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true, index: true },
   productCode: { type: String, required: true, trim: true },
   productName: { type: String, required: true, trim: true },
-  quantityAdded: { type: Number, required: true, min: 1 },
+  quantityAdded: { type: Number, required: true },
   resultingStock: { type: Number, required: true, min: 0 },
   location: { type: String, required: true, trim: true, index: true },
   managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
