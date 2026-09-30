@@ -14,6 +14,9 @@ import Role from './models/Role.js';
 import Product from './models/Product.js';
 import Order from './models/Order.js';
 import Notification from './models/Notification.js';
+import StockUpdate from './models/StockUpdate.js';
+import Counter from './models/Counter.js';
+import GoodsReceivedNote from './models/GoodsReceivedNote.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -660,8 +663,66 @@ app.post('/api/products/:id/stock', async (req, res) => {
     { new: true, runValidators: true }
   );
   if (!product) return res.status(404).json({ message: 'Product not found in your factory.' });
+  await StockUpdate.create({
+    productId: product._id,
+    productCode: product.productCode,
+    productName: product.productName,
+    quantityAdded: quantity,
+    resultingStock: product.openingStock,
+    location: user.location,
+    managerId: user._id,
+    managerName: user.name
+  });
   publishStockUpdate([product]);
   res.json(product);
+});
+app.get('/api/stock-updates', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view stock update history.' });
+  res.json(await StockUpdate.find().sort({ createdAt: -1 }).limit(500));
+});
+const formatGrnNumber = (value) => `GRN-${String(value).padStart(6, '0')}`;
+app.get('/api/grns/next-number', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create GRNs.' });
+  const counter = await Counter.findOne({ key: 'GRN' });
+  res.json({ grnNumber: formatGrnNumber((counter?.value || 0) + 1) });
+});
+app.post('/api/grns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create GRNs.' });
+  const { supplierCode, supplierName, remarks = '', grnDate, location, items } = req.body;
+  if (!supplierCode?.trim() || !supplierName?.trim() || !grnDate || !location?.trim() || !Array.isArray(items) || !items.length) return res.status(400).json({ message: 'Supplier, GRN date, location, and at least one item are required.' });
+  if (user.role === 'LOCATION_MANAGER' && location !== user.location) return res.status(403).json({ message: 'Location Managers can create GRNs only for their own location.' });
+  if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.costPrice) < 0 || Number(item.sellingPrice) < 0)) return res.status(400).json({ message: 'Each item needs a valid product, quantity, and prices.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let grn;
+    let changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      const counter = await Counter.findOneAndUpdate({ key: 'GRN' }, { $inc: { value: 1 } }, { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession });
+      const grnItems = [];
+      for (const item of items) {
+        const product = await Product.findOne({ _id: item.productId, plant: location }).session(dbSession);
+        if (!product) throw new Error('One of the selected products does not belong to this location.');
+        const quantity = Number(item.quantity), costPrice = Number(item.costPrice), sellingPrice = Number(item.sellingPrice);
+        const updated = await Product.findByIdAndUpdate(product._id, { $inc: { openingStock: quantity }, $set: { costPrice, sellingPrice } }, { new: true, session: dbSession });
+        changedProducts.push(updated);
+        grnItems.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantity, costPrice, sellingPrice, amount: quantity * costPrice });
+      }
+      const totalQuantity = grnItems.reduce((total, item) => total + item.quantity, 0);
+      const totalAmount = grnItems.reduce((total, item) => total + item.amount, 0);
+      [grn] = await GoodsReceivedNote.create([{ grnNumber: formatGrnNumber(counter.value), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), remarks: remarks.trim(), grnDate: new Date(grnDate), location, createdById: user._id, createdByName: user.name, items: grnItems, totalQuantity, totalAmount }], { session: dbSession });
+      await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
+    });
+    publishStockUpdate(changedProducts);
+    res.status(201).json(grn);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to save GRN.' });
+  } finally { await dbSession.endSession(); }
 });
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));

@@ -34,6 +34,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import "./style.css";
+import GrnPageNew from "./GrnPage.jsx";
 import logoUrl from "../assets/LOGO.png";
 import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -1921,6 +1922,130 @@ function PendingOrdersPage({ refreshKey, onOrderChanged }) {
     </section>
   );
 }
+function StockUpdatesHistoryPage() {
+  const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null);
+  useEffect(() => {
+    let active = true;
+    const load = () => Promise.all([fetch(`${API_URL}/products`), fetch(`${API_URL}/stock-updates`)])
+      .then(async ([productsResponse, updatesResponse]) => {
+        const [productsData, updatesData] = await Promise.all([productsResponse.json(), updatesResponse.json()]);
+        if (!productsResponse.ok) throw new Error(productsData.message);
+        if (!updatesResponse.ok) throw new Error(updatesData.message);
+        if (active) { setProducts(productsData); setUpdates(updatesData); setError(""); }
+      })
+      .catch((requestError) => active && setError(requestError.message));
+    load();
+    const events = new EventSource(`${API_URL}/stock-events`, { withCredentials: true });
+    events.addEventListener("stock-update", load);
+    const refreshTimer = window.setInterval(load, 30000);
+    return () => { active = false; events.close(); window.clearInterval(refreshTimer); };
+  }, []);
+  const latestUpdateByProduct = new Map();
+  updates.forEach((update) => {
+    if (!latestUpdateByProduct.has(String(update.productId))) latestUpdateByProduct.set(String(update.productId), update);
+  });
+  const colours = [...new Set(products.map((product) => product.color).filter(Boolean))].sort();
+  const sizes = [...new Set(products.map((product) => product.size).filter(Boolean))].sort();
+  const availableProducts = products.filter((product) => {
+    return Number(product.openingStock || 0) > 0 && (!filters.productCode.trim() || String(product.productCode || product.sku || "").toLowerCase().includes(filters.productCode.trim().toLowerCase())) && (!filters.productName.trim() || String(product.productName || product.name || "").toLowerCase().includes(filters.productName.trim().toLowerCase())) && (!filters.style.trim() || String(product.style || "").toLowerCase().includes(filters.style.trim().toLowerCase())) && (!filters.colour || product.color === filters.colour) && (!filters.size || product.size === filters.size);
+  });
+  return <section className="stock-updates-history-page">
+    <div className="page-title"><div><p className="eyebrow">INVENTORY AUDIT</p><h1>Available stock</h1><p className="page-description">Products with stock currently available, including the latest Location Manager update where recorded.</p></div></div>
+    {error && <p className="dashboard-error">{error}</p>}
+    <div className="stock-update-filters stock-update-detail-filters"><input type="search" value={filters.productCode} onChange={(event) => setFilters((current) => ({ ...current, productCode: event.target.value }))} placeholder="Product code" /><input type="search" value={filters.productName} onChange={(event) => setFilters((current) => ({ ...current, productName: event.target.value }))} placeholder="Product name" /><input type="search" value={filters.style} onChange={(event) => setFilters((current) => ({ ...current, style: event.target.value }))} placeholder="Style" /><select value={filters.colour} onChange={(event) => setFilters((current) => ({ ...current, colour: event.target.value }))}><option value="">All colours</option>{colours.map((colour) => <option key={colour} value={colour}>{colour}</option>)}</select><select value={filters.size} onChange={(event) => setFilters((current) => ({ ...current, size: event.target.value }))}><option value="">All sizes</option>{sizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></div>
+    <p className="stock-update-history-count">{availableProducts.length} products with stock available</p>
+    {availableProducts.length ? <div className="product-list-card stock-update-product-list"><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Image</th><th>Product code</th><th>Product name</th><th>Style</th><th>Colour</th><th>Size</th><th>Category</th><th>Available stock</th><th>Last quantity added</th><th>Updated by</th><th>Updated time</th></tr></thead><tbody>{availableProducts.map((product) => {
+      const update = latestUpdateByProduct.get(String(product._id));
+      const images = Array.isArray(product.images) && product.images.length ? product.images : product.imageUrl ? [{ _id: "legacy", url: product.imageUrl }] : [];
+      return <tr key={product._id}><td className="product-image-column">{images.length ? <button type="button" className="product-thumbnail" onClick={() => setImagePreview({ images, index: 0, name: product.productName || product.name })}><img src={images[0].url} alt={product.productName || product.name} loading="lazy" />{images.length > 1 && <span className="product-image-count">{images.length}</span>}</button> : <span className="product-image-placeholder"><FiImage /></span>}</td><td>{product.productCode || product.sku}</td><td><strong>{product.productName || product.name}</strong><small>{product.plant || "Head Office"}</small></td><td>{product.style || "—"}</td><td>{product.color || "—"}</td><td>{product.size || "—"}</td><td>{product.categoryCode || product.category || "—"}</td><td><strong>{Number(product.openingStock).toLocaleString()} {product.unit || "Pieces"}</strong></td><td>{update ? `+${Number(update.quantityAdded).toLocaleString()} pieces` : "Not recorded yet"}</td><td>{update?.managerName || "—"}</td><td>{update ? new Date(update.createdAt).toLocaleString() : "—"}</td></tr>;
+    })}</tbody></table></div></div> : !error && <p className="empty-dashboard-state">No products with stock available yet.</p>}
+    <section className="stock-update-history-section"><div className="page-title"><div><p className="eyebrow">INVENTORY AUDIT</p><h2>Update history</h2><p className="page-description">All stock additions made by Location Managers.</p></div></div>{updates.length ? <div className="product-list-card"><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Date & time</th><th>Product code</th><th>Product name</th><th>Quantity added</th><th>Stock after update</th><th>Location</th><th>Updated by</th></tr></thead><tbody>{updates.map((update) => <tr key={update._id}><td>{new Date(update.createdAt).toLocaleString()}</td><td>{update.productCode}</td><td>{update.productName}</td><td><strong>+{Number(update.quantityAdded).toLocaleString()} pieces</strong></td><td>{Number(update.resultingStock).toLocaleString()} pieces</td><td>{update.location}</td><td>{update.managerName}</td></tr>)}</tbody></table></div></div> : !error && <p className="empty-dashboard-state">No Location Manager stock updates have been recorded yet.</p>}</section>
+    {imagePreview && <div className="modal-backdrop sales-image-preview-backdrop" onClick={() => setImagePreview(null)}><section className="sales-image-preview-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><div className="product-image-preview-header"><div><p className="eyebrow">PRODUCT IMAGES</p><h2>{imagePreview.name}</h2><p className="product-gallery-count">Image {imagePreview.index + 1} of {imagePreview.images.length}</p></div><button type="button" className="close-modal" onClick={() => setImagePreview(null)}><FiX /></button></div><div className="product-image-preview-canvas">{imagePreview.images.length > 1 && <button type="button" className="gallery-arrow previous" onClick={() => setImagePreview((preview) => ({ ...preview, index: (preview.index - 1 + preview.images.length) % preview.images.length }))}><FiChevronLeft /></button>}<img src={imagePreview.images[imagePreview.index].url} alt={imagePreview.name} />{imagePreview.images.length > 1 && <button type="button" className="gallery-arrow next" onClick={() => setImagePreview((preview) => ({ ...preview, index: (preview.index + 1) % preview.images.length }))}><FiChevronRight /></button>}</div>{imagePreview.images.length > 1 && <div className="product-image-gallery-footer"><div className="product-image-thumbnails">{imagePreview.images.map((image, index) => <button type="button" className={index === imagePreview.index ? "active" : ""} key={image._id || image.url} onClick={() => setImagePreview((preview) => ({ ...preview, index }))}><img src={image.url} alt="" /></button>)}</div></div>}</section></div>}
+  </section>;
+}
+function LegacyGrnPage({ user }) {
+  const [grnNumber, setGrnNumber] = useState(""), [locations, setLocations] = useState([]), [products, setProducts] = useState([]), [items, setItems] = useState([]), [form, setForm] = useState({ supplierCode: "", supplierName: "", remarks: "", grnDate: new Date().toISOString().slice(0, 10), location: user.location || "Head Office" }), [draft, setDraft] = useState({ productId: "", quantity: "", costPrice: "", sellingPrice: "" }), [error, setError] = useState(""), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
+  const load = () => Promise.all([fetch(`${API_URL}/grns/next-number`), fetch(`${API_URL}/locations`), fetch(`${API_URL}/products`)]).then(async ([numberResponse, locationsResponse, productsResponse]) => {
+    const [numberData, locationsData, productsData] = await Promise.all([numberResponse.json(), locationsResponse.json(), productsResponse.json()]);
+    if (!numberResponse.ok) throw new Error(numberData.message);
+    if (!locationsResponse.ok) throw new Error(locationsData.message);
+    if (!productsResponse.ok) throw new Error(productsData.message);
+    setGrnNumber(numberData.grnNumber); setLocations(locationsData); setProducts(productsData);
+  }).catch((requestError) => setError(requestError.message));
+  useEffect(() => { load(); }, []);
+  const selectedProduct = products.find((product) => product._id === draft.productId);
+  const addItem = () => {
+    if (!selectedProduct || !Number.isInteger(Number(draft.quantity)) || Number(draft.quantity) < 1) return setError("Select a product and enter a whole quantity of at least 1.");
+    if (items.some((item) => item.productId === draft.productId)) return setError("This product is already in the GRN.");
+    setItems((current) => [...current, { productId: selectedProduct._id, productCode: selectedProduct.productCode, productName: selectedProduct.productName, quantity: Number(draft.quantity), costPrice: Number(draft.costPrice || selectedProduct.costPrice || 0), sellingPrice: Number(draft.sellingPrice || selectedProduct.sellingPrice || 0) }]);
+    setDraft({ productId: "", quantity: "", costPrice: "", sellingPrice: "" }); setError("");
+  };
+  const save = async (event) => {
+    event.preventDefault(); setError(""); setMessage("");
+    if (!items.length) return setError("Add at least one product to the GRN.");
+    setSaving(true);
+    try {
+      const response = await fetch(`${API_URL}/grns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, items }) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.message);
+      setMessage(`${data.grnNumber} saved successfully.`); setItems([]); await load();
+    } catch (requestError) { setError(requestError.message); } finally { setSaving(false); }
+  };
+  const totalQuantity = items.reduce((total, item) => total + item.quantity, 0), totalAmount = items.reduce((total, item) => total + item.quantity * item.costPrice, 0);
+  return <section className="grn-page"><div className="page-title"><div><p className="eyebrow">INVENTORY RECEIPT</p><h1>Goods Received Note</h1><p className="page-description">Record goods received and add them to stock.</p></div></div>{error && <p className="dashboard-error">{error}</p>}{message && <p className="stock-update-success">{message}</p>}<form onSubmit={save}><section className="grn-details"><label>GRN No<input value={grnNumber} readOnly /></label><label>Supplier Code<input value={form.supplierCode} onChange={(event) => setForm((current) => ({ ...current, supplierCode: event.target.value }))} required /></label><label>Supplier Name<input value={form.supplierName} onChange={(event) => setForm((current) => ({ ...current, supplierName: event.target.value }))} required /></label><label>GRN Date<input type="date" value={form.grnDate} onChange={(event) => setForm((current) => ({ ...current, grnDate: event.target.value }))} required /></label><label>Location<select value={form.location} disabled={user.role === "LOCATION_MANAGER"} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))}>{locations.map((location) => <option key={location._id} value={location.name}>{location.name}</option>)}</select></label><label className="grn-remarks">Remarks<input value={form.remarks} onChange={(event) => setForm((current) => ({ ...current, remarks: event.target.value }))} /></label></section><section className="grn-add-item"><h2>Add item</h2><select value={draft.productId} onChange={(event) => { const product = products.find((item) => item._id === event.target.value); setDraft({ productId: event.target.value, quantity: "", costPrice: product?.costPrice ?? "", sellingPrice: product?.sellingPrice ?? "" }); }}><option value="">Select product</option>{products.filter((product) => product.plant === form.location).map((product) => <option key={product._id} value={product._id}>{product.productCode} — {product.productName}</option>)}</select><input type="number" min="1" step="1" value={draft.quantity} onChange={(event) => setDraft((current) => ({ ...current, quantity: event.target.value }))} placeholder="Quantity" /><input type="number" min="0" step="0.01" value={draft.costPrice} onChange={(event) => setDraft((current) => ({ ...current, costPrice: event.target.value }))} placeholder="Cost price" /><input type="number" min="0" step="0.01" value={draft.sellingPrice} onChange={(event) => setDraft((current) => ({ ...current, sellingPrice: event.target.value }))} placeholder="Selling price" /><button type="button" onClick={addItem}>Add item</button></section><section className="grn-preview"><div className="grn-preview-heading"><h2>Preview</h2><span>{items.length} items · {totalQuantity.toLocaleString()} pieces</span></div><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Row</th><th>Product Code</th><th>Product Name</th><th>Order</th><th>Qty</th><th>Cost Price</th><th>Selling Price</th><th>Amount</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={item.productId}><td>{index + 1}</td><td>{item.productCode}</td><td>{item.productName}</td><td>—</td><td>{item.quantity}</td><td>LKR {item.costPrice.toLocaleString()}</td><td>LKR {item.sellingPrice.toLocaleString()}</td><td>LKR {(item.quantity * item.costPrice).toLocaleString()}</td><td><button type="button" className="close-modal" onClick={() => setItems((current) => current.filter((entry) => entry.productId !== item.productId))}><FiX /></button></td></tr>)}</tbody></table></div><div className="grn-total"><span>Total Quantity <b>{totalQuantity.toLocaleString()}</b></span><span>Gross Amount <b>LKR {totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b></span><button disabled={saving}>{saving ? "Saving..." : "Save GRN"}</button></div></section></form></section>;
+}
+function GrnPage({ user }) {
+  const [products, setProducts] = useState([]), [locations, setLocations] = useState([]), [number, setNumber] = useState(""), [items, setItems] = useState([]), [error, setError] = useState(""), [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ supplierCode: "", supplierName: "", remarks: "", grnDate: new Date().toISOString().slice(0, 10), location: user.location || "Head Office" });
+  const [entry, setEntry] = useState({ code: "", quantity: "" });
+  useEffect(() => { Promise.all([fetch(`${API_URL}/products`), fetch(`${API_URL}/locations`), fetch(`${API_URL}/grns/next-number`)]).then(async ([p, l, n]) => { const [productsData, locationsData, numberData] = await Promise.all([p.json(), l.json(), n.json()]); if (!p.ok || !l.ok || !n.ok) throw new Error(productsData.message || locationsData.message || numberData.message); setProducts(productsData); setLocations(locationsData); setNumber(numberData.grnNumber); }).catch((e) => setError(e.message)); }, []);
+  const product = products.find((item) => String(item.productCode || item.sku || "").toLowerCase() === entry.code.trim().toLowerCase() && item.plant === form.location);
+  const addItem = () => { if (!product || !Number.isInteger(Number(entry.quantity)) || Number(entry.quantity) < 1) return setError("Enter a valid Product Code and quantity."); if (items.some((item) => item.productId === product._id)) return setError("This product is already added."); setItems((current) => [...current, { productId: product._id, productCode: product.productCode, productName: product.productName, quantity: Number(entry.quantity), costPrice: Number(product.costPrice || 0), sellingPrice: Number(product.sellingPrice || 0) }]); setEntry({ code: "", quantity: "" }); setError(""); };
+  const save = async (event) => { event.preventDefault(); if (document.activeElement?.getAttribute("placeholder") === "Quantity") return addItem(); if (!items.length) return setError("Add at least one item."); setSaving(true); try { const response = await fetch(`${API_URL}/grns`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, items }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); setItems([]); setNumber(""); setError(""); } catch (e) { setError(e.message); } finally { setSaving(false); } };
+  const total = items.reduce((sum, item) => sum + item.quantity * item.costPrice, 0);
+  return <section className="grn-page"><div className="page-title"><div><p className="eyebrow">INVENTORY RECEIPT</p><h1>Goods Received Note</h1></div></div>{error && <p className="dashboard-error">{error}</p>}<form onSubmit={save}><section className="grn-details"><label>GRN No<input value={number} readOnly /></label><label>Supplier Code<input required value={form.supplierCode} onChange={(e) => setForm({ ...form, supplierCode: e.target.value })} /></label><label>Supplier Name<input required value={form.supplierName} onChange={(e) => setForm({ ...form, supplierName: e.target.value })} /></label><label>GRN Date<input type="date" value={form.grnDate} onChange={(e) => setForm({ ...form, grnDate: e.target.value })} /></label><label>Location<select disabled={user.role === "LOCATION_MANAGER"} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}>{locations.map((l) => <option key={l._id} value={l.name}>{l.name}</option>)}</select></label><label className="grn-remarks">Remarks<input value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} /></label></section><section className="grn-add-item"><input value={entry.code} onChange={(e) => setEntry({ ...entry, code: e.target.value })} placeholder="Product Code" /><input value={product?.productName || ""} readOnly placeholder="Product Name" /><input type="number" min="1" value={entry.quantity} onChange={(e) => setEntry({ ...entry, quantity: e.target.value })} placeholder="Qty" /><input value={product ? `LKR ${Number(product.costPrice).toLocaleString()}` : ""} readOnly placeholder="Cost price" /><input value={product ? `LKR ${Number(product.sellingPrice).toLocaleString()}` : ""} readOnly placeholder="Selling price" /><button type="button" onClick={addItem}>Add item</button></section><section className="grn-preview"><div className="grn-preview-heading"><h2>Preview</h2><span>{items.length} items</span></div><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Row</th><th>Product Code</th><th>Product Name</th><th>Order</th><th>Qty</th><th>Cost Price</th><th>Selling Price</th><th>Amount</th><th></th></tr></thead><tbody>{items.map((item, i) => <tr key={item.productId}><td>{i + 1}</td><td>{item.productCode}</td><td>{item.productName}</td><td>-</td><td>{item.quantity}</td><td>LKR {item.costPrice.toLocaleString()}</td><td>LKR {item.sellingPrice.toLocaleString()}</td><td>LKR {(item.quantity * item.costPrice).toLocaleString()}</td><td><button type="button" className="close-modal" onClick={() => setItems(items.filter((x) => x.productId !== item.productId))}><FiX /></button></td></tr>)}</tbody></table></div><div className="grn-total"><span>Gross Amount <b>LKR {total.toLocaleString()}</b></span><button disabled={saving}>{saving ? "Saving..." : "Save GRN"}</button></div></section></form></section>;
+}
+function GrnProductLookup() {
+  const [open, setOpen] = useState(false), [products, setProducts] = useState([]), [filter, setFilter] = useState("");
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Enter" && document.activeElement?.getAttribute("placeholder") === "Quantity") {
+        event.preventDefault(); window.setTimeout(() => document.querySelector(".grn-add-item button")?.click(), 0); return;
+      }
+      if (event.key !== "F3" || document.activeElement?.getAttribute("placeholder") !== "Product Code") return;
+      event.preventDefault(); setOpen(true);
+      fetch(`${API_URL}/products`).then((response) => response.json()).then(setProducts).catch(() => setProducts([]));
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+  useEffect(() => {
+    const form = document.querySelector(".grn-page form");
+    const onSubmit = (event) => {
+      if (document.activeElement?.getAttribute("placeholder") !== "Quantity") return;
+      event.preventDefault(); event.stopPropagation();
+      window.setTimeout(() => document.querySelector(".grn-add-item button")?.click(), 0);
+    };
+    form?.addEventListener("submit", onSubmit);
+    return () => form?.removeEventListener("submit", onSubmit);
+  }, []);
+  useEffect(() => {
+    const quantity = document.querySelector('.grn-add-item input[placeholder="Quantity"]');
+    const onEnter = (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      document.querySelector(".grn-add-item button")?.click();
+    };
+    quantity?.addEventListener("keydown", onEnter, true);
+    return () => quantity?.removeEventListener("keydown", onEnter, true);
+  }, []);
+  const selectProduct = (product) => {
+    const input = document.querySelector('.grn-add-item input[placeholder="Product Code"]');
+    if (input) { const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; setter.call(input, product.productCode || product.sku); input.dispatchEvent(new Event("input", { bubbles: true })); }
+    setOpen(false); setFilter("");
+  };
+  const visible = products.filter((product) => [product.productCode, product.productName, product.style, product.color, product.size].filter(Boolean).join(" ").toLowerCase().includes(filter.toLowerCase()));
+  return open && <div className="modal-backdrop grn-lookup-backdrop" onClick={() => setOpen(false)}><section className="grn-lookup-modal" onClick={(event) => event.stopPropagation()}><div className="product-image-preview-header"><div><p className="eyebrow">PRODUCT MASTER</p><h2>Select product</h2><p>Search, then double-click an item to add it to the GRN.</p></div><button type="button" className="close-modal" onClick={() => setOpen(false)}><FiX /></button></div><input autoFocus type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search code, name, style, colour..." /><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Product Code</th><th>Product Name</th><th>Style</th><th>Colour</th><th>Size</th><th>Stock</th></tr></thead><tbody>{visible.map((product) => <tr key={product._id} onDoubleClick={() => selectProduct(product)} title="Double-click to select"><td>{product.productCode || product.sku}</td><td>{product.productName || product.name}</td><td>{product.style || "-"}</td><td>{product.color || "-"}</td><td>{product.size || "-"}</td><td>{Number(product.openingStock || 0).toLocaleString()}</td></tr>)}</tbody></table></div></section></div>;
+}
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
@@ -1996,6 +2121,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ? [
         [FiBarChart2, "Dashboard"],
         [FiBox, "Inventory"],
+        [FiFileText, "Stock Updates"],
+        [FiFileText, "GRN"],
         [FiFileText, "Sales"],
         [FiUsers, "Users"],
         [FiBox, "Locations"],
@@ -2005,6 +2132,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       ? [
           [FiBarChart2, "Dashboard"],
           [FiBox, "Stock Update"],
+          [FiFileText, "GRN"],
           [FiPlusCircle, "Create Order"],
           [FiFileText, "Pending Orders"],
         ]
@@ -2201,6 +2329,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         <h1>
           {["Users", "Locations", "Roles"].includes(view)
             ? `Manage ${view.toLowerCase()}.`
+            : view === "Stock Updates"
+              ? "Review stock update history."
+            : view === "GRN"
+              ? "Create a goods received note."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -2241,6 +2373,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   const content =
     view === "Users" ? (
       <UsersPage />
+    ) : view === "Stock Updates" && admin ? (
+      <StockUpdatesHistoryPage />
+    ) : view === "GRN" && (admin || locationManager) ? (
+      <GrnPageNew user={user} />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
