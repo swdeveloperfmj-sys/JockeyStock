@@ -95,11 +95,6 @@ const deliverMessage = async (recipient, subject, message) => {
   const results = await Promise.allSettled(deliveries);
   results.filter((result) => result.status === 'rejected').forEach((result) => console.error('Notification delivery failed:', result.reason?.message || result.reason));
 };
-const deliverOrderNotification = (recipient, order) => deliverMessage(
-  recipient,
-  `New pending order ${order.orderNumber}`,
-  `${order.salesRepName} created ${order.orderNumber} for ${order.customerName}. Total: ${order.totalQuantity} pieces, LKR ${Number(order.totalAmount).toLocaleString()}.`
-);
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -351,12 +346,41 @@ const isTodayInSriLanka = (date) => {
   }).format(value);
   return dateParts(date) === dateParts(new Date());
 };
-const notifyOrderRecipients = async (recipients, title, message) => {
-  if (!recipients.length) return;
-  const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-  await Notification.insertMany(recipients.map((recipient) => ({ recipientId: recipient._id, title, message, type: 'ORDER', expiresAt })));
+const notifyRecipients = async (recipients, { title, message, type = 'SYSTEM', expiresInDays = 7 }) => {
+  const uniqueRecipients = [...new Map(
+    recipients.filter((recipient) => recipient?._id).map((recipient) => [String(recipient._id), recipient])
+  ).values()];
+  if (!uniqueRecipients.length) return;
+  const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+  await Notification.insertMany(uniqueRecipients.map((recipient) => ({ recipientId: recipient._id, title, message, type, expiresAt })));
   publishNotificationUpdate();
-  void Promise.all(recipients.map((recipient) => deliverMessage(recipient, title, message)));
+  void Promise.all(uniqueRecipients.map((recipient) => deliverMessage(recipient, title, message)));
+};
+const notifyOrderRecipients = (recipients, title, message) => notifyRecipients(recipients, { title, message, type: 'ORDER', expiresInDays: 2 });
+const notifyLowStock = async (products, actorId) => {
+  const lowStockProducts = products.filter((product) => Number(product.openingStock) <= 10 && product.productCode && product.plant);
+  for (const product of lowStockProducts) {
+    const recipients = await User.find({
+      _id: { $ne: actorId },
+      $or: [
+        { role: 'SUPER_ADMIN' },
+        { role: 'LOCATION_MANAGER', location: product.plant }
+      ]
+    }).select('_id email contactNumber');
+    if (!recipients.length) continue;
+    const title = Number(product.openingStock) === 0
+      ? `Out of stock: ${product.productCode}`
+      : `Low stock: ${product.productCode}`;
+    const recentRecipientIds = await Notification.distinct('recipientId', {
+      recipientId: { $in: recipients.map((recipient) => recipient._id) },
+      title,
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    });
+    const recentlyNotified = new Set(recentRecipientIds.map(String));
+    const pendingRecipients = recipients.filter((recipient) => !recentlyNotified.has(String(recipient._id)));
+    const message = `${product.productName} (${product.productCode}) at ${product.plant} has ${Number(product.openingStock).toLocaleString()} pieces remaining.`;
+    await notifyRecipients(pendingRecipients, { title, message, type: 'STOCK', expiresInDays: 3 });
+  }
 };
 
 // Cancelling reverses the original stock deduction in the same transaction.
@@ -483,22 +507,19 @@ app.post('/api/orders', async (req, res) => {
     });
     const changedProducts = await Product.find({
       _id: { $in: createdOrder.items.map((item) => item.productId) }
-    }).select('_id openingStock updatedAt');
+    }).select('_id productCode productName plant openingStock updatedAt');
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
     const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: createdOrder.location }).select('_id email contactNumber');
-    if (locationManagers.length) {
-      const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
-      await Notification.insertMany(locationManagers.map((manager) => ({
-        recipientId: manager._id,
-        title: 'New pending order',
-        message: `${user.name} created ${createdOrder.orderNumber} for ${createdOrder.customerName}.`,
-        type: 'ORDER',
-        expiresAt
-      })));
-      publishNotificationUpdate();
-      void Promise.all(locationManagers.map((manager) => deliverOrderNotification(manager, createdOrder)));
-    }
+    try {
+      if (locationManagers.length) await notifyOrderRecipients(
+        locationManagers,
+        `New pending order ${createdOrder.orderNumber}`,
+        `${user.name} created ${createdOrder.orderNumber} for ${createdOrder.customerName}. Total: ${createdOrder.totalQuantity} pieces, LKR ${Number(createdOrder.totalAmount).toLocaleString()}.`
+      );
+    } catch (notificationError) { console.error('New-order notification failed:', notificationError.message); }
+    try { await notifyLowStock(changedProducts, user._id); }
+    catch (notificationError) { console.error('Low-stock notification failed:', notificationError.message); }
     res.status(201).json(createdOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to create the sales order.' });
@@ -551,12 +572,14 @@ app.patch('/api/orders/:id', async (req, res) => {
       order.totalAmount = requestedItems.reduce((sum, item) => sum + item.total, 0);
       updatedOrder = await order.save({ session: dbSession });
     });
-    const changedProducts = await Product.find({ _id: { $in: [...new Set(changedProductIds)] } }).select('_id openingStock updatedAt');
+    const changedProducts = await Product.find({ _id: { $in: [...new Set(changedProductIds)] } }).select('_id productCode productName plant openingStock updatedAt');
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
     const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: updatedOrder.location }).select('_id email contactNumber');
     try { await notifyOrderRecipients(locationManagers, `Order updated ${updatedOrder.orderNumber}`, `${user.name} updated ${updatedOrder.orderNumber} for ${updatedOrder.customerName}. Total: ${updatedOrder.totalQuantity} pieces, LKR ${Number(updatedOrder.totalAmount).toLocaleString()}.`); }
     catch (notificationError) { console.error('Order-update notification failed:', notificationError.message); }
+    try { await notifyLowStock(changedProducts, user._id); }
+    catch (notificationError) { console.error('Low-stock notification failed:', notificationError.message); }
     res.json(updatedOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to edit the sales order.' });
@@ -674,6 +697,14 @@ app.post('/api/products/:id/stock', async (req, res) => {
     managerName: user.name
   });
   publishStockUpdate([product]);
+  try {
+    const superAdmins = await User.find({ role: 'SUPER_ADMIN', _id: { $ne: user._id } }).select('_id email contactNumber');
+    await notifyRecipients(superAdmins, {
+      title: `Stock updated: ${product.productCode}`,
+      message: `${user.name} added ${quantity.toLocaleString()} pieces to ${product.productName} at ${product.plant}. Available stock: ${Number(product.openingStock).toLocaleString()} pieces.`,
+      type: 'STOCK'
+    });
+  } catch (notificationError) { console.error('Stock notification failed:', notificationError.message); }
   res.json(product);
 });
 app.patch('/api/products/:id/stock', async (req, res) => {
@@ -688,6 +719,16 @@ app.patch('/api/products/:id/stock', async (req, res) => {
   const product = await Product.findByIdAndUpdate(req.params.id, { $set: { openingStock: quantity } }, { new: true, runValidators: true });
   if (quantityChange !== 0) await StockUpdate.create({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: quantityChange, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name });
   publishStockUpdate([product]);
+  if (quantityChange !== 0) {
+    try {
+      const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: product.plant }).select('_id email contactNumber');
+      await notifyRecipients(locationManagers, {
+        title: `Stock corrected: ${product.productCode}`,
+        message: `${user.name} corrected ${product.productName} stock at ${product.plant} to ${Number(product.openingStock).toLocaleString()} pieces.`,
+        type: 'STOCK'
+      });
+    } catch (notificationError) { console.error('Stock-correction notification failed:', notificationError.message); }
+  }
   res.json(product);
 });
 app.get('/api/stock-updates', async (req, res) => {
@@ -809,6 +850,16 @@ app.post('/api/grns', async (req, res) => {
       await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
     });
     publishStockUpdate(changedProducts);
+    try {
+      const recipients = user.role === 'LOCATION_MANAGER'
+        ? await User.find({ role: 'SUPER_ADMIN' }).select('_id email contactNumber')
+        : await User.find({ role: 'LOCATION_MANAGER', location }).select('_id email contactNumber');
+      await notifyRecipients(recipients.filter((recipient) => String(recipient._id) !== String(user._id)), {
+        title: `GRN saved: ${grn.grnNumber}`,
+        message: `${user.name} saved ${grn.grnNumber} at ${location}. Received ${Number(grn.totalQuantity).toLocaleString()} pieces worth LKR ${Number(grn.totalAmount).toLocaleString()}.`,
+        type: 'GRN'
+      });
+    } catch (notificationError) { console.error('GRN notification failed:', notificationError.message); }
     res.status(201).json({
       ...grn.toObject(),
       updatedProducts: changedProducts.map((product) => ({

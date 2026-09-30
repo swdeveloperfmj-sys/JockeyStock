@@ -1295,6 +1295,13 @@ header h1 {
   font-weight: 800;
   background: color-mix(in srgb, var(--red) 7%, var(--surface));
 }
+.grn-page .grn-details input[type="date"]:disabled {
+  color: var(--ink);
+  opacity: 1;
+  -webkit-text-fill-color: var(--ink);
+  background: color-mix(in srgb, var(--cream) 55%, var(--surface));
+  cursor: not-allowed;
+}
 .grn-page .grn-add-item input[placeholder="Cost price"],
 .grn-page .grn-add-item input[placeholder="Selling price"] {
   pointer-events: none;

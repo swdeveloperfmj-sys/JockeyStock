@@ -2116,6 +2116,15 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     setNotificationsOpen(false);
     setToastNotification(null);
     if (notification.type === "ORDER" && locationManager) setV("Pending Orders");
+    else if (notification.type === "ORDER" && !admin) setV("Sales");
+    else if (notification.type === "STOCK" && admin) setV("Stock Updates");
+    else if (notification.type === "STOCK" && locationManager) setV("Stock Update");
+    else if (notification.type === "GRN" && (admin || locationManager)) {
+      setReportOpen(true);
+      setInventorySalesOpen(true);
+      setTransactionInquiryOpen(true);
+      setV("GRN Report");
+    }
   };
   useEffect(() => {
     let active = true;
