@@ -5,6 +5,12 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const apiFetch = (input, options = {}) =>
   window.fetch(input, { ...options, credentials: "include" });
 const GRN_DRAFT_KEY = "jockey-grn-draft";
+const getCurrentLocalDate = () => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 10);
+};
 const getGrnDraft = () => {
   try {
     return JSON.parse(sessionStorage.getItem(GRN_DRAFT_KEY) || "{}");
@@ -18,7 +24,7 @@ export default function GrnPageNew({ user }) {
     supplierCode: "",
     supplierName: "",
     remarks: "",
-    grnDate: new Date().toISOString().slice(0, 10),
+    grnDate: getCurrentLocalDate(),
     location: user.location || "Head Office",
   });
   const savedDraft = useMemo(() => getGrnDraft(), []);
@@ -34,9 +40,11 @@ export default function GrnPageNew({ user }) {
   const [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(
-    savedDraft.form || createEmptyForm(),
-  );
+  const [form, setForm] = useState(() => ({
+    ...createEmptyForm(),
+    ...(savedDraft.form || {}),
+    grnDate: getCurrentLocalDate(),
+  }));
 
   useEffect(() => {
     sessionStorage.setItem(GRN_DRAFT_KEY, JSON.stringify({ form, entry, items }));
@@ -210,9 +218,8 @@ export default function GrnPageNew({ user }) {
             <input
               type="date"
               value={form.grnDate}
-              onChange={(event) =>
-                setForm({ ...form, grnDate: event.target.value })
-              }
+              disabled
+              aria-label="GRN Date (automatically set to today)"
             />
           </label>
           <label>
