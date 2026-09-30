@@ -889,7 +889,7 @@ td small {
   font-size: 0;
 }
 .inventory-top h1::after {
-  content: "FMJ New Plant Products";
+  content: "Head Office Products";
   font:
     600 clamp(1.8rem, 3vw, 2.6rem) "Playfair Display",
     serif;
@@ -912,7 +912,7 @@ td small {
   top: 24px;
 }
 .product-form-card h2::after {
-  content: "FMJ New Plant";
+  content: "Head Office";
   display: block;
   margin-top: 6px;
   color: var(--red);

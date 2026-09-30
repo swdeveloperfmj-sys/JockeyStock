@@ -17,7 +17,29 @@ import Notification from './models/Notification.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
+const INVENTORY_LOCATION = 'Head Office';
+const LEGACY_INVENTORY_LOCATION = 'FMJ New Plant';
 let databaseConnection;
+let inventoryLocationMigration;
+const migrateInventoryLocation = async () => {
+  if (inventoryLocationMigration) return inventoryLocationMigration;
+  inventoryLocationMigration = (async () => {
+    // The original FMJ New Plant inventory is now operated from Head Office.
+    // Use the collection directly because `plant` is immutable on Product.
+    await Product.collection.updateMany(
+      { plant: LEGACY_INVENTORY_LOCATION },
+      { $set: { plant: INVENTORY_LOCATION } }
+    );
+    await Order.updateMany(
+      { location: LEGACY_INVENTORY_LOCATION },
+      { $set: { location: INVENTORY_LOCATION } }
+    );
+  })().catch((error) => {
+    inventoryLocationMigration = undefined;
+    throw error;
+  });
+  return inventoryLocationMigration;
+};
 const connectDatabase = async () => {
   if (mongoose.connection.readyState === 1) return mongoose.connection;
   if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is missing. Add it to your deployment environment variables.');
@@ -25,7 +47,9 @@ const connectDatabase = async () => {
     databaseConnection = mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 })
       .catch((error) => { databaseConnection = undefined; throw error; });
   }
-  return databaseConnection;
+  const connection = await databaseConnection;
+  await migrateInventoryLocation();
+  return connection;
 };
 const stockEventClients = new Set();
 const publishNotificationUpdate = () => {
@@ -245,7 +269,7 @@ app.post('/api/auth/login', async (req, res) => {
     req.session.save((saveError) => {
       if (saveError) return res.status(500).json({ message: 'Unable to save the login session.' });
       return res.json({
-        user: { id: user._id, name: user.name, username: user.username, email: user.email, role: user.role },
+        user: { id: user._id, name: user.name, username: user.username, email: user.email, location: user.location, role: user.role },
         expiresAt: Date.now() + sessionMaxAge
       });
     });
@@ -641,6 +665,7 @@ app.post('/api/products/:id/stock', async (req, res) => {
 });
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));
+  data.plant = INVENTORY_LOCATION;
   data.gender = normalizeGender(data.gender);
   if (!/^\d{13}$/.test(data.productCode || '')) return res.status(400).json({ message: 'Product Code must contain exactly 13 numbers.' });
   const productDetails = parseProductName(data.productName);
@@ -713,6 +738,7 @@ app.post('/api/products/bulk', async (req, res) => {
       sku: data.productCode,
       name: productDetails.productName,
       category: data.categoryCode,
+      plant: INVENTORY_LOCATION,
       _sourceRow: rowNumber
     });
     candidates.push(data);

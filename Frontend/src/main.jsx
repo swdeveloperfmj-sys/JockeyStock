@@ -3210,8 +3210,8 @@ function ProductMaster({ open }) {
       <div className="inventory-top">
         <div>
           <p className="eyebrow">PRODUCT MASTER FILE</p>
-          <h1>FMJ New Plant Inventory</h1>
-          <p>All products added here belong to FMJ New Plant.</p>
+          <h1>Head Office Inventory</h1>
+          <p>All products added here belong to Head Office.</p>
         </div>
         <div className="product-header-buttons">
           <button

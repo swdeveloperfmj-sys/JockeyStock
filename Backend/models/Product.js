@@ -6,7 +6,7 @@ const productImageSchema = new mongoose.Schema({
 });
 
 const productSchema = new mongoose.Schema({
-  plant: { type: String, default: 'FMJ New Plant', immutable: true },
+  plant: { type: String, default: 'Head Office', immutable: true },
   productCode: { type: String, required: true, unique: true, sparse: true, trim: true, match: [/^\d{13}$/, 'Product Code must contain exactly 13 numbers.'] },
   referenceCode1: { type: String, required: true, trim: true },
   productName: { type: String, required: true, trim: true },
