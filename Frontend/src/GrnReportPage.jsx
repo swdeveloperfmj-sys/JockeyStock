@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   FiChevronDown,
@@ -31,12 +31,49 @@ const displayDate = (value) =>
       })
     : "—";
 
+const downloadReportElement = async (element, grnNumber) => {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import("html2canvas"),
+    import("jspdf"),
+  ]);
+  const canvas = await html2canvas(element, {
+    scale: 2,
+    backgroundColor: "#ffffff",
+    useCORS: true,
+    logging: false,
+    windowWidth: 1200,
+    onclone: (clonedDocument) => {
+      const sheet = clonedDocument.querySelector("[data-grn-pdf-sheet]");
+      if (sheet) sheet.classList.add("is-pdf-export");
+    },
+  });
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const margin = 10;
+  const pageWidth = pdf.internal.pageSize.getWidth() - margin * 2;
+  const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2;
+  const imageHeight = (canvas.height * pageWidth) / canvas.width;
+  const image = canvas.toDataURL("image/jpeg", 0.96);
+  let remaining = imageHeight;
+  let position = margin;
+  pdf.addImage(image, "JPEG", margin, position, pageWidth, imageHeight, undefined, "FAST");
+  remaining -= pageHeight;
+  while (remaining > 0) {
+    pdf.addPage();
+    position = margin - (imageHeight - remaining);
+    pdf.addImage(image, "JPEG", margin, position, pageWidth, imageHeight, undefined, "FAST");
+    remaining -= pageHeight;
+  }
+  const safeNumber = String(grnNumber || "grn").replace(/[^a-z0-9_-]/gi, "-");
+  pdf.save(`${safeNumber}.pdf`);
+};
+
 export default function GrnReportPage({ user }) {
   const [records, setRecords] = useState([]);
   const [dates, setDates] = useState({ from: "", to: "" });
   const [expandedId, setExpandedId] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
   const [documentGrn, setDocumentGrn] = useState(null);
+  const [autoDownload, setAutoDownload] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -75,10 +112,17 @@ export default function GrnReportPage({ user }) {
     const closeOnEscape = (event) => {
       if (event.key === "Escape") close();
     };
-    window.addEventListener("click", close);
+    // A mobile long-press emits a trailing click after `contextmenu`.
+    // Register outside-click slightly later so that click cannot instantly
+    // dismiss the menu that was just opened.
+    const outsideClickTimer = window.setTimeout(
+      () => window.addEventListener("click", close),
+      500,
+    );
     window.addEventListener("scroll", close, true);
     window.addEventListener("keydown", closeOnEscape);
     return () => {
+      window.clearTimeout(outsideClickTimer);
       window.removeEventListener("click", close);
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("keydown", closeOnEscape);
@@ -102,6 +146,14 @@ export default function GrnReportPage({ user }) {
     const empty = { from: "", to: "" };
     setDates(empty);
     load(empty);
+  };
+
+  const openContextMenu = (grn, x, y) => {
+    setContextMenu({
+      grn,
+      x: Math.max(8, Math.min(x, window.innerWidth - 150)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 70)),
+    });
   };
 
   return (
@@ -188,14 +240,7 @@ export default function GrnReportPage({ user }) {
                   grn={grn}
                   expanded={expanded}
                   onToggle={() => setExpandedId(expanded ? "" : grn._id)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setContextMenu({
-                      grn,
-                      x: Math.min(event.clientX, window.innerWidth - 150),
-                      y: Math.min(event.clientY, window.innerHeight - 70),
-                    });
-                  }}
+                  onOpenMenu={(x, y) => openContextMenu(grn, x, y)}
                 />
               );
             })}
@@ -214,6 +259,7 @@ export default function GrnReportPage({ user }) {
             type="button"
             role="menuitem"
             onClick={() => {
+              setAutoDownload(window.matchMedia("(max-width: 760px)").matches);
               setDocumentGrn(contextMenu.grn);
               setContextMenu(null);
             }}
@@ -227,7 +273,11 @@ export default function GrnReportPage({ user }) {
           <GrnDocument
             grn={documentGrn}
             printedBy={user.name}
-            onClose={() => setDocumentGrn(null)}
+            autoDownload={autoDownload}
+            onClose={() => {
+              setDocumentGrn(null);
+              setAutoDownload(false);
+            }}
           />,
           document.body,
         )}
@@ -235,13 +285,45 @@ export default function GrnReportPage({ user }) {
   );
 }
 
-function FragmentRow({ grn, expanded, onToggle, onContextMenu }) {
+function FragmentRow({ grn, expanded, onToggle, onOpenMenu }) {
+  const longPressTimer = useRef(null);
+  const pressOrigin = useRef(null);
+  const clearLongPress = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+  useEffect(() => clearLongPress, []);
+  const startLongPress = (event) => {
+    if (event.pointerType === "mouse") return;
+    clearLongPress();
+    pressOrigin.current = { x: event.clientX, y: event.clientY };
+    longPressTimer.current = window.setTimeout(() => {
+      onOpenMenu(event.clientX, event.clientY);
+      longPressTimer.current = null;
+    }, 550);
+  };
+  const moveLongPress = (event) => {
+    if (!pressOrigin.current) return;
+    if (
+      Math.abs(event.clientX - pressOrigin.current.x) > 10 ||
+      Math.abs(event.clientY - pressOrigin.current.y) > 10
+    ) clearLongPress();
+  };
   return (
     <>
       <tr
         className={expanded ? "is-expanded" : ""}
-        onContextMenu={onContextMenu}
-        title="Right-click to view document"
+        onPointerDown={startLongPress}
+        onPointerMove={moveLongPress}
+        onPointerUp={clearLongPress}
+        onPointerCancel={clearLongPress}
+        onPointerLeave={clearLongPress}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          clearLongPress();
+          onOpenMenu(event.clientX || window.innerWidth / 2, event.clientY || window.innerHeight / 2);
+        }}
+        title="Right-click or long-press to view document"
       >
         <td><strong>{grn.grnNumber}</strong></td>
         <td>{displayDate(grn.grnDate)}</td>
@@ -305,7 +387,29 @@ function FragmentRow({ grn, expanded, onToggle, onContextMenu }) {
   );
 }
 
-function GrnDocument({ grn, printedBy, onClose }) {
+function GrnDocument({ grn, printedBy, autoDownload, onClose }) {
+  const sheetRef = useRef(null);
+  const autoDownloadStarted = useRef(false);
+  const [downloading, setDownloading] = useState(false);
+  const downloadPdf = async () => {
+    if (!sheetRef.current || downloading) return;
+    setDownloading(true);
+    try {
+      await document.fonts?.ready;
+      await downloadReportElement(sheetRef.current, grn.grnNumber);
+      if (autoDownload) onClose();
+    } catch (error) {
+      console.error("Unable to download GRN PDF", error);
+    } finally {
+      setDownloading(false);
+    }
+  };
+  useEffect(() => {
+    if (!autoDownload || autoDownloadStarted.current) return undefined;
+    autoDownloadStarted.current = true;
+    const timer = window.setTimeout(downloadPdf, 150);
+    return () => window.clearTimeout(timer);
+  }, [autoDownload]);
   return (
     <div className="modal-backdrop grn-document-backdrop" onClick={onClose}>
       <section
@@ -313,14 +417,14 @@ function GrnDocument({ grn, printedBy, onClose }) {
         onClick={(event) => event.stopPropagation()}
       >
         <div className="grn-document-actions">
-          <button type="button" onClick={() => window.print()}>
-            <FiPrinter /> Print / Save PDF
+          <button type="button" onClick={autoDownload ? downloadPdf : () => window.print()} disabled={downloading}>
+            <FiPrinter /> {downloading ? "Preparing PDF..." : "Print / Save PDF"}
           </button>
           <button type="button" className="cancel-button" onClick={onClose}>
             <FiX /> Close
           </button>
         </div>
-        <article className="grn-print-sheet">
+        <article className="grn-print-sheet" ref={sheetRef} data-grn-pdf-sheet={grn._id}>
           <header className="grn-document-header">
             <div className="grn-document-brand">
               <strong>ROYAL LANKA AGENCIES</strong>

@@ -337,7 +337,15 @@ app.get('/api/orders', async (req, res) => {
     : user.role === 'LOCATION_MANAGER'
       ? { location: user.location, status: 'PENDING' }
       : { salesRepId: user._id, status: 'PENDING' };
-  res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(200));
+  if (user.role === 'SUPER_ADMIN') {
+    const { startDate, endDate } = req.query;
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(`${startDate}T00:00:00.000+05:30`);
+      if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999+05:30`);
+    }
+  }
+  res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200));
 });
 
 const isTodayInSriLanka = (date) => {

@@ -604,6 +604,16 @@ nav a.sidebar-report-link {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
+.grn-print-sheet.is-pdf-export {
+  width: 930px !important;
+  min-width: 930px !important;
+  min-height: 1120px !important;
+  padding: 18px 14px 28px !important;
+  border-radius: 0 !important;
+  background: #fff !important;
+  color: #080808 !important;
+  box-shadow: none !important;
+}
 .grn-document-header {
   min-height: 108px;
   margin: 0 0 14px;
@@ -1978,6 +1988,61 @@ td small {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.product-filter {
+  max-width: 540px;
+  min-height: 42px;
+  margin: 0 0 16px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  border: 1px solid var(--field-border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.product-filter:focus-within {
+  color: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 12%, transparent);
+}
+.product-filter input {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 8px 0;
+  color: var(--ink);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.product-filter input:focus {
+  outline: 0;
+  box-shadow: none;
+}
+.product-filter button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+}
+.product-filter button:hover {
+  color: var(--red);
+  background: var(--cream);
+}
+.product-filter-empty {
+  margin: 0;
 }
 .bulk-delete-button {
   width: auto;
@@ -4175,6 +4240,20 @@ label {
   color: var(--red) !important;
   border: 1px solid var(--red) !important;
 }
+.download-sales-report {
+  width: auto;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+}
+.download-sales-report:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .sales-history-card {
   cursor: pointer;
 }
@@ -4240,6 +4319,10 @@ label {
   }
   .clear-sales-filter {
     width: 100%;
+  }
+  .download-sales-report {
+    width: 100%;
+    justify-content: center;
   }
   .order-details-modal {
     width: calc(100vw - 20px);
@@ -4654,6 +4737,380 @@ label {
   }
   .modal-actions button {
     min-width: 0;
+  }
+}
+
+/* GRN Report: compact, labelled cards instead of a clipped desktop table. */
+@media (max-width: 760px) {
+  .grn-report-page {
+    gap: 16px;
+    padding-bottom: 24px;
+  }
+  .grn-report-title h2 {
+    font-size: 1.55rem;
+    line-height: 1.15;
+  }
+  .grn-report-filters {
+    gap: 10px;
+    padding: 14px;
+  }
+  .grn-report-summary {
+    gap: 10px;
+  }
+  .grn-report-summary article {
+    padding: 14px;
+  }
+  .grn-report-summary strong {
+    font-size: 1rem;
+  }
+  .grn-report-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+  .grn-report-table {
+    width: 100%;
+    min-width: 0;
+  }
+  .grn-report-table > tbody {
+    gap: 12px;
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) {
+    position: relative;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-touch-callout: none;
+    padding: 12px 14px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td {
+    display: grid;
+    width: auto;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px 0;
+    border-right: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td::before {
+    display: block;
+    color: var(--muted);
+    font-size: 0.61rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(1) {
+    grid-template-columns: 1fr;
+    padding: 2px 46px 11px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(1)::before {
+    display: none;
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(1) strong {
+    font-size: 0.9rem;
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(2)::before { content: "GRN date"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(3)::before { content: "Supplier code"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(4)::before { content: "Supplier name"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(5)::before { content: "Location"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(6)::before { content: "Items"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(7)::before { content: "Total qty"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(8)::before { content: "Total amount"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(9)::before { content: "Created by"; }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(10) {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 34px;
+    padding: 0;
+    border: 0;
+  }
+  .grn-report-table > tbody > tr:not(.grn-report-detail-row) > td:nth-child(10)::before {
+    display: none;
+  }
+  .grn-report-expand {
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+  .grn-report-empty td {
+    display: block !important;
+    padding: 28px 10px !important;
+    text-align: center;
+  }
+  .grn-report-detail-row {
+    margin-top: -12px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 0 0 12px 12px;
+    background: var(--surface);
+  }
+  .grn-report-detail-row > td {
+    display: block;
+    width: auto;
+    padding: 0;
+    border: 0;
+  }
+  .grn-report-detail-row > td::before {
+    display: none;
+  }
+  .grn-report-detail {
+    padding: 14px;
+  }
+  .grn-report-meta {
+    display: grid;
+    gap: 8px;
+  }
+  .grn-report-meta span {
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .grn-report-detail table {
+    width: 100%;
+    min-width: 0;
+  }
+  .grn-report-detail table tbody {
+    gap: 8px;
+  }
+  .grn-report-detail table tr {
+    padding: 9px 11px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--surface) 88%, var(--cream));
+  }
+  .grn-report-detail table td {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 8px;
+    padding: 7px 0;
+    font-size: 0.72rem;
+  }
+  .grn-report-detail table td::before {
+    display: block;
+    color: var(--muted);
+    font-size: 0.59rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .grn-report-detail table td:nth-child(1)::before { content: "Row"; }
+  .grn-report-detail table td:nth-child(2)::before { content: "Product code"; }
+  .grn-report-detail table td:nth-child(3)::before { content: "Product name"; }
+  .grn-report-detail table td:nth-child(4)::before { content: "Qty"; }
+  .grn-report-detail table td:nth-child(5)::before { content: "Cost price"; }
+  .grn-report-detail table td:nth-child(6)::before { content: "Selling price"; }
+  .grn-report-detail table td:nth-child(7)::before { content: "Amount"; }
+}
+
+/* Stock Updates: turn the dense audit table into scan-friendly mobile cards. */
+@media (max-width: 760px) {
+  .stock-updates-history-page {
+    padding-bottom: 24px;
+  }
+  .stock-updates-history-page .page-title {
+    margin-bottom: 18px;
+  }
+  .stock-update-detail-filters {
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .stock-update-history-count {
+    padding: 9px 11px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--red) 9%, var(--surface));
+  }
+  .stock-update-product-list {
+    height: auto;
+    min-height: 0;
+    padding: 10px !important;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+  .stock-update-product-list .product-table-wrap {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+  }
+  .stock-update-product-list .product-table tbody {
+    gap: 12px;
+  }
+  .stock-update-product-list .product-table tr {
+    display: grid;
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 0 13px;
+    padding: 13px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
+  }
+  .stock-update-product-list .product-table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    padding: 8px 0;
+    border: 0 !important;
+    white-space: normal;
+  }
+  .stock-update-product-list .product-table td::before {
+    display: none;
+  }
+  .stock-update-product-list .product-table td:nth-child(1) {
+    grid-row: span 2;
+    align-self: center;
+    padding: 0;
+  }
+  .stock-update-product-list .product-table .product-image-column {
+    min-width: 0;
+    width: auto;
+  }
+  .stock-update-product-list .product-thumbnail,
+  .stock-update-product-list .product-image-placeholder {
+    width: 68px;
+    height: 68px;
+    min-width: 68px;
+    min-height: 68px;
+    border-radius: 10px !important;
+  }
+  .stock-update-product-list .product-table td:nth-child(2) {
+    padding: 1px 0 3px;
+    color: var(--red);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+  .stock-update-product-list .product-table td:nth-child(3) {
+    padding: 0;
+  }
+  .stock-update-product-list .product-table td:nth-child(3) strong {
+    display: block;
+    overflow-wrap: anywhere;
+    color: var(--ink);
+    font-size: 0.92rem;
+    line-height: 1.3;
+  }
+  .stock-update-product-list .product-table td:nth-child(3) small {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 0.7rem;
+  }
+  .stock-update-product-list .product-table td:nth-child(n + 4):nth-child(-n + 7) {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 7px;
+    padding: 8px 0;
+    font-size: 0.78rem;
+    border-top: 1px solid var(--border) !important;
+  }
+  .stock-update-product-list .product-table td:nth-child(n + 4):nth-child(-n + 7)::before {
+    display: block;
+    color: var(--muted);
+    font-size: 0.63rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .stock-update-product-list .product-table td:nth-child(4)::before { content: "Style"; }
+  .stock-update-product-list .product-table td:nth-child(5)::before { content: "Colour"; }
+  .stock-update-product-list .product-table td:nth-child(6)::before { content: "Size"; }
+  .stock-update-product-list .product-table td:nth-child(7)::before { content: "Category"; }
+  .stock-update-product-list .product-table td:nth-child(8) {
+    grid-column: 1 / -1;
+    margin: 5px -13px 0;
+    padding: 12px 13px;
+    text-align: center;
+    background: color-mix(in srgb, var(--red) 10%, var(--surface));
+    border-top: 1px solid color-mix(in srgb, var(--red) 28%, var(--border)) !important;
+  }
+  .stock-update-product-list .editable-stock-quantity {
+    color: var(--red) !important;
+    border: 0;
+    font-size: 1rem;
+  }
+  .stock-update-product-list .product-table td:nth-child(n + 9) {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    gap: 8px;
+    padding: 9px 0 0;
+    color: var(--muted);
+    font-size: 0.75rem;
+    overflow-wrap: anywhere;
+  }
+  .stock-update-product-list .product-table td:nth-child(n + 9)::before {
+    display: block;
+    color: var(--muted);
+    font-size: 0.63rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .stock-update-product-list .product-table td:nth-child(9)::before { content: "Last added"; }
+  .stock-update-product-list .product-table td:nth-child(10)::before { content: "Updated by"; }
+  .stock-update-product-list .product-table td:nth-child(11)::before { content: "Updated time"; }
+
+  .stock-update-history-section {
+    margin-top: 34px;
+  }
+  .stock-update-history-section > .product-list-card {
+    padding: 0 !important;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .stock-update-history-section .product-table-wrap {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+  }
+  .stock-update-history-section .product-table tbody {
+    gap: 12px;
+  }
+  .stock-update-history-section .product-table tr {
+    padding: 14px;
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.06);
+  }
+  .stock-update-history-section .product-table td {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 9px 0;
+    border-right: 0 !important;
+    overflow-wrap: anywhere;
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+  .stock-update-history-section .product-table td::before {
+    display: block;
+    color: var(--muted);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .stock-update-history-section .product-table td:nth-child(1)::before { content: "Date & time"; }
+  .stock-update-history-section .product-table td:nth-child(2)::before { content: "Product code"; }
+  .stock-update-history-section .product-table td:nth-child(3)::before { content: "Product name"; }
+  .stock-update-history-section .product-table td:nth-child(4)::before { content: "Quantity added"; }
+  .stock-update-history-section .product-table td:nth-child(5)::before { content: "Stock after"; }
+  .stock-update-history-section .product-table td:nth-child(6)::before { content: "Location"; }
+  .stock-update-history-section .product-table td:nth-child(7)::before { content: "Updated by"; }
+  .stock-update-history-section .product-table td:nth-child(4) strong {
+    color: var(--red);
   }
 }
 

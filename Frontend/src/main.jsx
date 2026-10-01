@@ -27,6 +27,7 @@ import {
   FiMenu,
   FiMoon,
   FiPlusCircle,
+  FiSearch,
   FiSun,
   FiTrash2,
   FiUploadCloud,
@@ -1428,16 +1429,19 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     </section>
   );
 }
-function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
+function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = false }) {
   const [orders, setOrders] = useState([]),
     [error, setError] = useState(""),
-    [monthFilter, setMonthFilter] = useState(""),
-    [dateFilter, setDateFilter] = useState(""),
+    [startDate, setStartDate] = useState(""),
+    [endDate, setEndDate] = useState(""),
     [selectedOrder, setSelectedOrder] = useState(null),
     [reverseTarget, setReverseTarget] = useState(null),
     [reversing, setReversing] = useState(false);
   useEffect(() => {
-    fetch(`${API_URL}/orders`)
+    const query = new URLSearchParams();
+    if (startDate) query.set("startDate", startDate);
+    if (endDate) query.set("endDate", endDate);
+    fetch(`${API_URL}/orders${query.size ? `?${query}` : ""}`)
       .then(async (r) => {
         const d = await r.json();
         if (!r.ok) throw Error(d.message);
@@ -1445,13 +1449,13 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
       })
       .then(setOrders)
       .catch((e) => setError(e.message));
-  }, [refreshKey]);
+  }, [refreshKey, startDate, endDate]);
   const filteredOrders = orders.filter((order) => {
     const orderDate = new Date(order.createdAt);
     const localDate = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, "0")}-${String(orderDate.getDate()).padStart(2, "0")}`;
     return (
-      (!monthFilter || localDate.startsWith(monthFilter)) &&
-      (!dateFilter || localDate === dateFilter)
+      (!startDate || localDate >= startDate) &&
+      (!endDate || localDate <= endDate)
     );
   });
   const total = filteredOrders.reduce(
@@ -1462,6 +1466,17 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
     const value = new Date(date);
     const today = new Date();
     return value.getFullYear() === today.getFullYear() && value.getMonth() === today.getMonth() && value.getDate() === today.getDate();
+  };
+  const downloadReport = () => {
+    const quote = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = filteredOrders.map((order) => [order.orderNumber, new Date(order.createdAt).toLocaleString(), order.customerName, order.customerPhone, order.salesRepName, order.location, order.status, order.totalQuantity, Number(order.totalAmount || 0).toFixed(2)]);
+    const csv = [["Order number", "Created time", "Customer", "Phone", "Sales representative", "Location", "Status", "Items", "Total (LKR)"], ...rows].map((row) => row.map(quote).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sales-history${startDate ? `-${startDate}` : ""}${endDate ? `-to-${endDate}` : ""}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
   const reverseOrder = async () => {
     if (!reverseTarget) return;
@@ -1485,7 +1500,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
       <div className="page-title">
         <div>
           <p className="eyebrow">SALES</p>
-          <h1>My sales</h1>
+          <h1>{isAdmin ? "Sales history" : "My sales"}</h1>
           <p className="page-description">
             Your customer orders and sales totals. Today’s orders can be cancelled.
           </p>
@@ -1496,25 +1511,26 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
       </div>
       <div className="sales-history-filters">
         <label>
-          Month
-          <span className="sales-date-input"><input type="month" value={monthFilter} onChange={(event) => { setMonthFilter(event.target.value); setDateFilter(""); }} /><FiCalendar aria-hidden="true" /></span>
+          From
+          <span className="sales-date-input"><input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
         </label>
         <label>
-          Date
-          <span className="sales-date-input"><input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
+          To
+          <span className="sales-date-input"><input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
         </label>
-        {(monthFilter || dateFilter) && (
+        {(startDate || endDate) && (
           <button
             type="button"
             className="clear-sales-filter"
             onClick={() => {
-              setMonthFilter("");
-              setDateFilter("");
+              setStartDate("");
+              setEndDate("");
             }}
           >
             Clear filters
           </button>
         )}
+        {isAdmin && <button type="button" className="download-sales-report" disabled={!filteredOrders.length} onClick={downloadReport}><FiDownload /> Download report</button>}
       </div>
       {error ? (
         <p className="dashboard-error">{error}</p>
@@ -1547,7 +1563,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
                     minimumFractionDigits: 2,
                   })}
                 </strong>
-                {isToday(order.createdAt) && (
+                {!isAdmin && isToday(order.createdAt) && (
                   <div className="sales-order-actions">
                     <button type="button" className="edit-sales-order" onClick={(event) => { event.stopPropagation(); onEditOrder(order); }} onKeyDown={(event) => event.stopPropagation()}>Edit order</button>
                     <button type="button" className="cancel-sales-order" onClick={(event) => { event.stopPropagation(); setReverseTarget(order); }} onKeyDown={(event) => event.stopPropagation()}>Cancel order</button>
@@ -1642,7 +1658,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder }) {
                 })}
               </strong>
             </div>
-            {isToday(selectedOrder.createdAt) && (
+            {!isAdmin && isToday(selectedOrder.createdAt) && (
               <button type="button" className="reverse-order-button" onClick={() => setReverseTarget(selectedOrder)}>
                 Cancel today’s order
               </button>
@@ -2440,8 +2456,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           setV(locationManager ? "Pending Orders" : "Sales");
         }}
       />
-    ) : view === "Sales" && !admin && !locationManager ? (
-      <SalesHistoryPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
+    ) : view === "Sales" && !locationManager ? (
+      <SalesHistoryPage refreshKey={orderRefreshKey} isAdmin={admin} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
     ) : (
       <>
         <section className="stats">
@@ -2943,6 +2959,7 @@ const getProductImages = (product) => {
 };
 function ProductMaster({ open }) {
   const [products, setProducts] = useState([]),
+    [productFilter, setProductFilter] = useState(""),
     [formOpen, setFormOpen] = useState(false),
     [editingProduct, setEditingProduct] = useState(null),
     [selected, setSelected] = useState([]),
@@ -3037,10 +3054,35 @@ function ProductMaster({ open }) {
         ? current.filter((item) => item !== id)
         : [...current, id],
     );
+  const filteredProducts = products.filter((product) => {
+    const query = productFilter.trim().toLowerCase();
+    if (!query) return true;
+    return [
+      product.productCode,
+      product.sku,
+      product.referenceCode1,
+      product.productName,
+      product.name,
+      product.style,
+      product.color,
+      product.size,
+      product.gender,
+      product.categoryCode,
+      product.category,
+      product.subCategoryCode,
+      product.subSubCategory,
+      product.supplierCode,
+    ].some((value) => String(value || "").toLowerCase().includes(query));
+  });
   const toggleAll = () =>
-    setSelected((current) =>
-      current.length === products.length ? [] : products.map((p) => p._id),
-    );
+    setSelected((current) => {
+      const visibleIds = filteredProducts.map((product) => product._id);
+      const allVisibleSelected =
+        visibleIds.length > 0 && visibleIds.every((id) => current.includes(id));
+      return allVisibleSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : [...new Set([...current, ...visibleIds])];
+    });
   const downloadProductTemplate = async () => {
     const { default: ExcelJS } = await import("exceljs");
     const workbook = new ExcelJS.Workbook();
@@ -3684,12 +3726,27 @@ function ProductMaster({ open }) {
                 <FiTrash2 /> Delete selected ({selected.length})
               </button>
             )}
-            <span>{products.length} items</span>
+            <span>
+              {productFilter.trim()
+                ? `${filteredProducts.length} of ${products.length} items`
+                : `${products.length} items`}
+            </span>
           </div>
         </div>
+        <div className="product-filter">
+          <FiSearch aria-hidden="true" />
+          <input
+            type="search"
+            value={productFilter}
+            onChange={(event) => setProductFilter(event.target.value)}
+            placeholder="Filter by code, name, style, colour, size, gender, category or supplier"
+            aria-label="Filter products"
+          />
+        </div>
         {products.length ? (
-          <div className="product-table-wrap">
-            <table className="product-table">
+          <>
+            <div className="product-table-wrap">
+              <table className="product-table">
               <thead>
                 <tr>
                   <th className="select-column">
@@ -3697,8 +3754,10 @@ function ProductMaster({ open }) {
                       type="checkbox"
                       aria-label="Select all products"
                       checked={
-                        products.length > 0 &&
-                        selected.length === products.length
+                        filteredProducts.length > 0 &&
+                        filteredProducts.every((product) =>
+                          selected.includes(product._id),
+                        )
                       }
                       onChange={toggleAll}
                     />
@@ -3723,7 +3782,7 @@ function ProductMaster({ open }) {
                 </tr>
               </thead>
               <tbody>
-                {products.map((p) => (
+                {filteredProducts.map((p) => (
                   <tr
                     key={p._id}
                     className="editable-product-row"
@@ -3874,8 +3933,14 @@ function ProductMaster({ open }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            {filteredProducts.length === 0 && (
+              <p className="table-message product-filter-empty">
+                No products match “{productFilter}”.
+              </p>
+            )}
+          </>
         ) : (
           <p className="table-message">No products have been added yet.</p>
         )}
