@@ -253,7 +253,6 @@ export default function GrnPageNew({ user }) {
           </label>
         </section>
         <section className="grn-add-item">
-          <h2>Add item</h2>
           <input
             autoFocus
             value={entry.code}
