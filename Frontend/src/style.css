@@ -1979,6 +1979,61 @@ td small {
   align-items: center;
   gap: 10px;
 }
+.product-filter {
+  max-width: 540px;
+  min-height: 42px;
+  margin: 0 0 16px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  border: 1px solid var(--field-border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.product-filter:focus-within {
+  color: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 12%, transparent);
+}
+.product-filter input {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  padding: 8px 0;
+  color: var(--ink);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.product-filter input:focus {
+  outline: 0;
+  box-shadow: none;
+}
+.product-filter button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+}
+.product-filter button:hover {
+  color: var(--red);
+  background: var(--cream);
+}
+.product-filter-empty {
+  margin: 0;
+}
 .bulk-delete-button {
   width: auto;
   margin: 0;

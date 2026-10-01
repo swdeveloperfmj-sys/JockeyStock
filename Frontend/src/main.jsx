@@ -27,6 +27,7 @@ import {
   FiMenu,
   FiMoon,
   FiPlusCircle,
+  FiSearch,
   FiSun,
   FiTrash2,
   FiUploadCloud,
@@ -2943,6 +2944,7 @@ const getProductImages = (product) => {
 };
 function ProductMaster({ open }) {
   const [products, setProducts] = useState([]),
+    [productFilter, setProductFilter] = useState(""),
     [formOpen, setFormOpen] = useState(false),
     [editingProduct, setEditingProduct] = useState(null),
     [selected, setSelected] = useState([]),
@@ -3037,10 +3039,35 @@ function ProductMaster({ open }) {
         ? current.filter((item) => item !== id)
         : [...current, id],
     );
+  const filteredProducts = products.filter((product) => {
+    const query = productFilter.trim().toLowerCase();
+    if (!query) return true;
+    return [
+      product.productCode,
+      product.sku,
+      product.referenceCode1,
+      product.productName,
+      product.name,
+      product.style,
+      product.color,
+      product.size,
+      product.gender,
+      product.categoryCode,
+      product.category,
+      product.subCategoryCode,
+      product.subSubCategory,
+      product.supplierCode,
+    ].some((value) => String(value || "").toLowerCase().includes(query));
+  });
   const toggleAll = () =>
-    setSelected((current) =>
-      current.length === products.length ? [] : products.map((p) => p._id),
-    );
+    setSelected((current) => {
+      const visibleIds = filteredProducts.map((product) => product._id);
+      const allVisibleSelected =
+        visibleIds.length > 0 && visibleIds.every((id) => current.includes(id));
+      return allVisibleSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : [...new Set([...current, ...visibleIds])];
+    });
   const downloadProductTemplate = async () => {
     const { default: ExcelJS } = await import("exceljs");
     const workbook = new ExcelJS.Workbook();
@@ -3684,12 +3711,27 @@ function ProductMaster({ open }) {
                 <FiTrash2 /> Delete selected ({selected.length})
               </button>
             )}
-            <span>{products.length} items</span>
+            <span>
+              {productFilter.trim()
+                ? `${filteredProducts.length} of ${products.length} items`
+                : `${products.length} items`}
+            </span>
           </div>
         </div>
+        <div className="product-filter">
+          <FiSearch aria-hidden="true" />
+          <input
+            type="search"
+            value={productFilter}
+            onChange={(event) => setProductFilter(event.target.value)}
+            placeholder="Filter by code, name, style, colour, size, gender, category or supplier"
+            aria-label="Filter products"
+          />
+        </div>
         {products.length ? (
-          <div className="product-table-wrap">
-            <table className="product-table">
+          <>
+            <div className="product-table-wrap">
+              <table className="product-table">
               <thead>
                 <tr>
                   <th className="select-column">
@@ -3697,8 +3739,10 @@ function ProductMaster({ open }) {
                       type="checkbox"
                       aria-label="Select all products"
                       checked={
-                        products.length > 0 &&
-                        selected.length === products.length
+                        filteredProducts.length > 0 &&
+                        filteredProducts.every((product) =>
+                          selected.includes(product._id),
+                        )
                       }
                       onChange={toggleAll}
                     />
@@ -3723,7 +3767,7 @@ function ProductMaster({ open }) {
                 </tr>
               </thead>
               <tbody>
-                {products.map((p) => (
+                {filteredProducts.map((p) => (
                   <tr
                     key={p._id}
                     className="editable-product-row"
@@ -3874,8 +3918,14 @@ function ProductMaster({ open }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+            {filteredProducts.length === 0 && (
+              <p className="table-message product-filter-empty">
+                No products match “{productFilter}”.
+              </p>
+            )}
+          </>
         ) : (
           <p className="table-message">No products have been added yet.</p>
         )}
