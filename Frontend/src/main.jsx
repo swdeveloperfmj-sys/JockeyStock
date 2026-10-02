@@ -2183,6 +2183,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
         [FiBarChart2 , "Sales"],
+        [FiFileText, "Sales Order Series"],
         [FiUsers, "Users"],
         [FiMapPin, "Locations"],
         [FiUsers, "Roles"],
@@ -2400,9 +2401,11 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 ? "Review pending sales orders."
               : view === "Create Order"
                 ? "Create sales order."
-                : view === "Sales"
-                  ? "Sales history."
-                  : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
+            : view === "Sales"
+              ? "Sales history."
+              : view === "Sales Order Series"
+                ? "Configure automatic sales order numbers."
+                : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
       <div className="header-actions">
@@ -2459,6 +2462,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       />
     ) : view === "Sales" && !locationManager ? (
       <SalesHistoryPage refreshKey={orderRefreshKey} isAdmin={admin} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
+    ) : view === "Sales Order Series" && admin ? (
+      <SalesOrderSeriesSettings />
     ) : (
       <>
         <section className="stats">
