@@ -500,8 +500,13 @@ app.post('/api/orders', async (req, res) => {
       }
       const totalQuantity = requestedItems.reduce((sum, item) => sum + item.quantity, 0);
       const totalAmount = requestedItems.reduce((sum, item) => sum + item.total, 0);
+      const orderCounter = await Counter.findOneAndUpdate(
+        { key: 'SALES_ORDER' },
+        { $inc: { value: 1 }, $setOnInsert: { prefix: 'SO-', padding: 6 } },
+        { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession }
+      );
       [createdOrder] = await Order.create([{
-        orderNumber: `SO-${Date.now()}-${Math.floor(Math.random() * 900 + 100)}`,
+        orderNumber: formatSalesOrderNumber(orderCounter.value, orderCounter),
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         customerAddress: customerAddress.trim(),
@@ -750,6 +755,56 @@ const formatGrnNumber = (value, counter = {}) => {
   const padding = Number(counter.padding || 6);
   return `${prefix}${String(value).padStart(padding, '0')}`;
 };
+const formatSalesOrderNumber = (value, counter = {}) => {
+  const prefix = counter.prefix ?? 'SO-';
+  const padding = Number(counter.padding || 6);
+  return `${prefix}${String(value).padStart(padding, '0')}`;
+};
+app.get('/api/orders/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the sales-order number series.' });
+  const counter = await Counter.findOne({ key: 'SALES_ORDER' }).lean();
+  const settings = counter || { value: 0, prefix: 'SO-', padding: 6 };
+  res.json({
+    prefix: settings.prefix ?? 'SO-',
+    padding: Number(settings.padding || 6),
+    currentNumber: Number(settings.value || 0) > 0 ? formatSalesOrderNumber(settings.value, settings) : null,
+    nextNumber: formatSalesOrderNumber(Number(settings.value || 0) + 1, settings)
+  });
+});
+app.put('/api/orders/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the sales-order number series.' });
+
+  const nextNumber = String(req.body.nextNumber || '').trim().toUpperCase();
+  const match = nextNumber.match(/^(.*?)(\d+)$/);
+  if (!match || nextNumber.length > 50) return res.status(400).json({ message: 'Enter a pattern ending with numbers, for example SO-000001.' });
+  const [, prefix, digits] = match;
+  const startingValue = Number(digits);
+  if (!Number.isSafeInteger(startingValue) || startingValue < 1 || digits.length > 12) return res.status(400).json({ message: 'The sales-order starting number must be between 1 and 12 digits.' });
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existingNumbers = await Order.find({ orderNumber: new RegExp(`^${escapedPrefix}\\d+$`, 'i') }).select('orderNumber').lean();
+  const highestExisting = existingNumbers.reduce((highest, order) => {
+    const suffix = String(order.orderNumber).slice(prefix.length);
+    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
+  }, 0);
+  if (startingValue <= highestExisting) return res.status(409).json({ message: `The next number must be greater than the existing ${formatSalesOrderNumber(highestExisting, { prefix, padding: digits.length })}.` });
+
+  const counter = await Counter.findOneAndUpdate(
+    { key: 'SALES_ORDER' },
+    { $set: { value: startingValue - 1, prefix, padding: digits.length } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({
+    prefix: counter.prefix,
+    padding: counter.padding,
+    currentNumber: counter.value > 0 ? formatSalesOrderNumber(counter.value, counter) : null,
+    nextNumber: formatSalesOrderNumber(counter.value + 1, counter)
+  });
+});
 app.get('/api/grns/number-series', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });

@@ -42,6 +42,7 @@ import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
+import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import logoUrl from "../assets/LOGO.png";
 import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -2481,7 +2482,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         {admin && dashboardError && (
           <p className="dashboard-error">{dashboardError}</p>
         )}
-        {admin && view === "Dashboard" && <GrnSeriesSettings />}
+        {admin && view === "Dashboard" && <>
+          <GrnSeriesSettings />
+          <SalesOrderSeriesSettings />
+        </>}
         {!admin && view === "Dashboard" && (
           <section className="sales-product-catalog">
             <div className="sales-product-catalog-heading">
