@@ -46,6 +46,7 @@ import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
 import CustomersPage from "./CustomersPage.jsx";
+import { createShipmentInvoicePdf } from "./invoicePdf.js";
 import logoUrl from "../assets/LOGO.png";
 import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -2054,7 +2055,7 @@ function ShipmentItemsModal({ order, onClose }) {
 }
 function LocationShipmentCards({ orders, onOpenItems, onViewInvoice }) {
   return <div className="shipment-list">
-    {orders.map((order) => <article className={`shipment-card location-shipment-card ${order.invoice?.url ? "" : "awaiting-invoice"}`} key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+    {orders.map((order) => <article className={`shipment-card location-shipment-card ${order.invoice?.url ? "" : "awaiting-invoice"}`} data-order-id={order._id} key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
       <div className="shipment-card-main">
         <span>{order.orderNumber}</span>
         <h2>{order.customerName}</h2>
@@ -2072,8 +2073,38 @@ function LocationShipmentCards({ orders, onOpenItems, onViewInvoice }) {
     </article>)}
   </div>;
 }
-function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
+function SalesShipmentCards({ orders, uploadingId, generatingId, onOpenItems, onViewInvoice, onUploadInvoice, onGenerateInvoice }) {
+  const waitingInvoiceOrders = orders.filter((order) => !order.invoice?.url);
+  const uploadedInvoiceOrders = orders.filter((order) => order.invoice?.url);
+  const renderOrderCard = (order) => {
+    const busy = Boolean(uploadingId || generatingId);
+    return <article className={`shipment-card ${!order.invoice?.url ? "is-awaiting-invoice" : ""} ${uploadingId === order._id ? "is-uploading" : ""} ${generatingId === order._id ? "is-generating" : ""}`} data-order-id={order._id} key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+      <div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div>
+      <div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>
+      <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>
+        <div className="invoice-actions">
+          {order.invoice?.url && <button type="button" className="invoice-view-button" onClick={() => onViewInvoice(order)}>View invoice</button>}
+          <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : order.invoice?.url ? "Replace invoice" : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => onUploadInvoice(order, event.target.files?.[0])} /></label>
+          <button type="button" className="invoice-generate-button" disabled={busy} onClick={() => onGenerateInvoice(order)}><FiFileText aria-hidden="true" />{generatingId === order._id ? "Generating..." : "Generate invoice"}</button>
+        </div>
+        {order.invoice?.url && <small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small>}
+      </div>
+    </article>;
+  };
+  return <div className="sales-shipment-groups">
+    <section className="shipment-status-group" aria-labelledby="waiting-invoice-heading">
+      <div className="shipment-status-heading"><div><p className="eyebrow">ACTION REQUIRED</p><h2 id="waiting-invoice-heading">Waiting invoice</h2></div><span>{waitingInvoiceOrders.length}</span></div>
+      {waitingInvoiceOrders.length ? <div className="shipment-list">{waitingInvoiceOrders.map(renderOrderCard)}</div> : <p className="shipment-group-empty">All ready shipments have an invoice.</p>}
+    </section>
+    <div className="shipment-status-divider" role="separator" aria-label="Uploaded invoices" />
+    <section className="shipment-status-group uploaded-invoice-group" aria-labelledby="uploaded-invoice-heading">
+      <div className="shipment-status-heading"><div><p className="eyebrow">COMPLETED</p><h2 id="uploaded-invoice-heading">Invoice uploaded</h2></div><span>{uploadedInvoiceOrders.length}</span></div>
+      {uploadedInvoiceOrders.length ? <div className="shipment-list">{uploadedInvoiceOrders.map(renderOrderCard)}</div> : <p className="shipment-group-empty">No invoices have been uploaded yet.</p>}
+    </section>
+  </div>;
+}
+function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [generatingId, setGeneratingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
   const lastShipmentTap = useRef({ orderId: "", time: 0 });
   useEffect(() => {
     let active = true;
@@ -2100,6 +2131,24 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
       window.setTimeout(() => setUploadingId(""), remainingHighlightTime);
     }
   };
+  const generateInvoice = async (order) => {
+    setGeneratingId(order._id);
+    setError("");
+    try {
+      const generated = await createShipmentInvoicePdf(order, userName);
+      const formData = new FormData();
+      formData.append("invoice", new File([generated.blob], generated.fileName, { type: "application/pdf" }));
+      const response = await fetch(`${API_URL}/shipments/${order._id}/invoice`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.map((item) => item._id === data._id ? data : item));
+      setInvoicePreview({ ...data.invoice, viewUrl: `${API_URL}/shipments/${data._id}/invoice/view` });
+    } catch (requestError) {
+      setError(requestError.message || "Unable to generate the invoice.");
+    } finally {
+      setGeneratingId("");
+    }
+  };
   const viewInvoice = (order) => {
     if (window.matchMedia("(max-width: 760px)").matches) {
       window.location.assign(`${API_URL}/shipments/${order._id}/invoice/download`);
@@ -2111,8 +2160,9 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
     if (event.target.closest("button, label, a, input")) return;
     const shipmentElement = event.target.closest(".shipment-card, .shipment-table tbody tr");
     if (!shipmentElement) return;
+    const orderId = shipmentElement.dataset.orderId;
     const shipmentIndex = Array.from(shipmentElement.parentElement.children).indexOf(shipmentElement);
-    const order = orders[shipmentIndex];
+    const order = orders.find((item) => item._id === orderId) || orders[shipmentIndex];
     if (!order) return;
     const now = Date.now();
     const previousTap = lastShipmentTap.current;
@@ -2136,7 +2186,7 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
     <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">{canUploadInvoice ? "Upload an invoice for each shipment ready for dispatch." : "Orders that are prepared and ready for dispatch."}</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <p className="pending-orders-count">{orders.length} ready {orders.length === 1 ? "shipment" : "shipments"}</p>
-    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className={`shipment-card ${!order.invoice?.url ? "is-awaiting-invoice" : ""} ${uploadingId === order._id ? "is-uploading" : ""}`} key={order._id} onDoubleClick={() => setSelectedShipment(order)} title="Double-click to view order items"><div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div><div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>{canUploadInvoice && <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>{order.invoice?.url ? <><div className="invoice-actions"><button type="button" className="invoice-view-button" onClick={() => viewInvoice(order)}>View invoice</button><label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Replacing..." : "Replace invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label></div><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label>}</div>}</article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+    {orders.length ? <SalesShipmentCards orders={orders} uploadingId={uploadingId} generatingId={generatingId} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} onUploadInvoice={uploadInvoice} onGenerateInvoice={generateInvoice} /> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
     {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
     {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
   </section>;
@@ -2664,7 +2714,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : view === "Pending Orders" && locationManager ? (
       <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onReadyToShip={() => setV("Shipment")} />
     ) : view === "Shipment" && (locationManager || salesDepartment) ? (
-      <ShipmentsPage refreshKey={orderRefreshKey} canUploadInvoice={salesDepartment} />
+      <ShipmentsPage refreshKey={orderRefreshKey} canUploadInvoice={salesDepartment} userName={user.name} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         editingOrder={orderToEdit}
