@@ -44,6 +44,9 @@ import GrnPageNew from "./GrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
+import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
+import CustomersPage from "./CustomersPage.jsx";
+import { createShipmentInvoicePdf } from "./invoicePdf.js";
 import logoUrl from "../assets/LOGO.png";
 import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -766,6 +769,9 @@ function RolesPage() {
 function SalesOrderPage({ onOrderCreated, editingOrder }) {
   const draft = editingOrder ? {} : getOrderDraft();
   const [products, setProducts] = useState([]),
+    [customers, setCustomers] = useState([]),
+    [selectedCustomerId, setSelectedCustomerId] = useState(() => draft.selectedCustomerId || ""),
+    [selectedCustomerLocation, setSelectedCustomerLocation] = useState(() => draft.selectedCustomerLocation || "billing"),
     [cart, setCart] = useState(() => draft.cart || []),
     [customerName, setCustomerName] = useState(() => draft.customerName || ""),
     [customerPhone, setCustomerPhone] = useState(
@@ -775,7 +781,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       () => draft.customerAddress || "",
     ),
     [customerLocked, setCustomerLocked] = useState(() =>
-      Boolean(draft.customerLocked),
+      Boolean(draft.customerLocked && draft.selectedCustomerId),
     ),
     [productSearch, setProductSearch] = useState(""),
     [selectedStyle, setSelectedStyle] = useState(""),
@@ -794,10 +800,12 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
         customerName,
         customerPhone,
         customerAddress,
+        selectedCustomerId,
+        selectedCustomerLocation,
         customerLocked,
       }),
     );
-  }, [cart, customerName, customerPhone, customerAddress, customerLocked]);
+  }, [cart, customerName, customerPhone, customerAddress, selectedCustomerId, selectedCustomerLocation, customerLocked]);
   useEffect(() => {
     fetch(`${API_URL}/products`)
       .then(async (r) => {
@@ -809,7 +817,17 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => {
-    if (!editingOrder || !products.length) return;
+    fetch(`${API_URL}/customers`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw Error(data.message);
+        return data;
+      })
+      .then(setCustomers)
+      .catch((requestError) => setError(requestError.message));
+  }, []);
+  useEffect(() => {
+    if (!editingOrder || !products.length || !customers.length) return;
     setCart(editingOrder.items.map((item) => {
       const product = products.find((candidate) => candidate._id === item.productId);
       return { productId: item.productId, product: product || { ...item, _id: item.productId }, quantity: item.quantity };
@@ -817,9 +835,13 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerName(editingOrder.customerName);
     setCustomerPhone(editingOrder.customerPhone || "");
     setCustomerAddress(editingOrder.customerAddress);
-    setCustomerLocked(true);
+    const linkedCustomer = customers.find((customer) => String(customer._id) === String(editingOrder.customerId))
+      || customers.find((customer) => customer.customerName === editingOrder.customerName);
+    setSelectedCustomerId(linkedCustomer?._id || "");
+    setSelectedCustomerLocation(editingOrder.customerBranchId || "billing");
+    setCustomerLocked(Boolean(linkedCustomer));
     sessionStorage.removeItem(ORDER_DRAFT_KEY);
-  }, [editingOrder, products]);
+  }, [editingOrder, products, customers]);
   useEffect(() => {
     const events = new EventSource(`${API_URL}/stock-events`, {
       withCredentials: true,
@@ -882,6 +904,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     (sum, item) => sum + item.quantity * Number(item.product.sellingPrice || 0),
     0,
   );
+  const selectedCustomer = customers.find((customer) => customer._id === selectedCustomerId);
   const availableProducts = products.filter(
     (product) =>
       product.openingStock > 0 &&
@@ -988,10 +1011,28 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     selectStyle("");
     setError("");
   };
+  const selectCustomer = (customerId) => {
+    const customer = customers.find((item) => item._id === customerId);
+    setSelectedCustomerId(customerId);
+    setSelectedCustomerLocation("billing");
+    setCustomerName(customer?.customerName || "");
+    setCustomerPhone(customer?.contact || "");
+    setCustomerAddress(customer?.billingAddress || "");
+    setCustomerLocked(false);
+    setError("");
+  };
+  const selectCustomerLocation = (locationId) => {
+    if (!selectedCustomer) return;
+    const branch = locationId === "billing" ? null : selectedCustomer.branches?.find((item) => item._id === locationId);
+    setSelectedCustomerLocation(locationId);
+    setCustomerPhone(branch?.contact || selectedCustomer.contact || "");
+    setCustomerAddress(branch?.address || selectedCustomer.billingAddress || "");
+    setError("");
+  };
   const lockCustomer = () => {
-    if (!customerName.trim() || !customerAddress.trim())
+    if (!selectedCustomerId || !customerName.trim() || !customerAddress.trim())
       return setError(
-        "Enter the customer name and delivery address before continuing.",
+        "Select a customer and delivery location before continuing.",
       );
     setCustomerLocked(true);
     setError("");
@@ -1001,6 +1042,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerName("");
     setCustomerPhone("");
     setCustomerAddress("");
+    setSelectedCustomerId("");
+    setSelectedCustomerLocation("billing");
     setCustomerLocked(false);
     setProductSearch("");
     setSelectedStyle("");
@@ -1024,9 +1067,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
         method: editingOrder ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerName,
-          customerPhone,
-          customerAddress,
+          customerId: selectedCustomerId,
+          customerBranchId: selectedCustomerLocation,
           items: cart.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
@@ -1039,6 +1081,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       setCustomerName("");
       setCustomerPhone("");
       setCustomerAddress("");
+      setSelectedCustomerId("");
+      setSelectedCustomerLocation("billing");
       setCustomerLocked(false);
       sessionStorage.removeItem(ORDER_DRAFT_KEY);
       onOrderCreated(order);
@@ -1082,33 +1126,36 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
               ) : null}
             </div>
             <div className="customer-fields">
-              <label>
-                Customer name *
-                <input
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  disabled={customerLocked}
-                  required
-                />
-              </label>
-              <label>
-                Phone number
-                <input
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  disabled={customerLocked}
-                />
-              </label>
               <label className="customer-address">
-                Delivery address *
-                <textarea
-                  value={customerAddress}
-                  onChange={(e) => setCustomerAddress(e.target.value)}
-                  disabled={customerLocked}
-                  required
-                  rows="3"
-                />
+                Select customer *
+                <select value={selectedCustomerId} onChange={(event) => selectCustomer(event.target.value)} disabled={customerLocked} required>
+                  <option value="">Choose customer</option>
+                  {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.customerCode} — {customer.customerName}</option>)}
+                </select>
               </label>
+              {selectedCustomer && <>
+                <label>
+                  Delivery location *
+                  <select value={selectedCustomerLocation} onChange={(event) => selectCustomerLocation(event.target.value)} disabled={customerLocked}>
+                    <option value="billing">Billing address</option>
+                    {(selectedCustomer.branches || []).map((branch) => <option key={branch._id} value={branch._id}>{branch.branchName}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Contact
+                  <input value={customerPhone || "Not provided"} readOnly />
+                </label>
+                <label className="customer-address">
+                  Delivery address
+                  <textarea value={customerAddress} readOnly rows="3" />
+                </label>
+                <div className="selected-customer-summary">
+                  <span><small>Customer code</small>{selectedCustomer.customerCode}</span>
+                  <span><small>VAT No.</small>{selectedCustomer.vatNo}</span>
+                  <span><small>Discount</small>{Number(selectedCustomer.discount || 0).toLocaleString()}%</span>
+                  <span><small>Payment term</small>{selectedCustomer.paymentTerm}</span>
+                </div>
+              </>}
             </div>
             {!customerLocked && (
               <button
@@ -2006,25 +2053,58 @@ function ShipmentItemsModal({ order, onClose }) {
     </section>
   </div>;
 }
-function LocationShipmentTable({ orders, onOpenItems, onViewInvoice }) {
-  return <div className="shipment-table-wrap">
-    <table className="shipment-table">
-      <thead><tr><th>Order no.</th><th>Customer</th><th>Phone</th><th>Delivery address</th><th>Items</th><th>Total</th><th>Invoice</th><th>Status</th></tr></thead>
-      <tbody>{orders.map((order) => <tr key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
-        <td><strong>{order.orderNumber}</strong></td>
-        <td>{order.customerName}</td>
-        <td>{order.customerPhone || "Not provided"}</td>
-        <td>{order.customerAddress}</td>
-        <td>{order.totalQuantity} pcs</td>
-        <td><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td>
-        <td>{order.invoice?.url ? <button type="button" className="invoice-view-button shipment-table-invoice" onClick={() => onViewInvoice(order)}>View invoice</button> : <span className="shipment-invoice-missing">Not uploaded</span>}</td>
-        <td>{order.invoice?.url ? <span className="shipment-ready-status"><FiTruck aria-hidden="true" /> Ready to ship</span> : <span className="shipment-waiting-status"><FiFileText aria-hidden="true" /> Waiting invoice</span>}</td>
-      </tr>)}</tbody>
-    </table>
+function LocationShipmentCards({ orders, onOpenItems, onViewInvoice }) {
+  return <div className="shipment-list">
+    {orders.map((order) => <article className={`shipment-card location-shipment-card ${order.invoice?.url ? "" : "awaiting-invoice"}`} data-order-id={order._id} key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+      <div className="shipment-card-main">
+        <span>{order.orderNumber}</span>
+        <h2>{order.customerName}</h2>
+        <small>{order.customerPhone || "No phone number"}</small>
+        <p><FiMapPin aria-hidden="true" />{order.customerAddress}</p>
+      </div>
+      <div className="shipment-total">
+        <small>{order.totalQuantity} pieces · Order total</small>
+        <strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+        {order.invoice?.url ? <b><FiTruck aria-hidden="true" /> Ready to ship</b> : <b className="shipment-waiting-status"><FiFileText aria-hidden="true" /> Waiting invoice</b>}
+      </div>
+      <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>
+        {order.invoice?.url ? <><button type="button" className="invoice-view-button location-invoice-view" onClick={() => onViewInvoice(order)}>View invoice</button><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <small className="shipment-awaiting-copy">Invoice has not been uploaded yet.</small>}
+      </div>
+    </article>)}
   </div>;
 }
-function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
+function SalesShipmentCards({ orders, uploadingId, generatingId, onOpenItems, onViewInvoice, onUploadInvoice, onGenerateInvoice }) {
+  const waitingInvoiceOrders = orders.filter((order) => !order.invoice?.url);
+  const uploadedInvoiceOrders = orders.filter((order) => order.invoice?.url);
+  const renderOrderCard = (order) => {
+    const busy = Boolean(uploadingId || generatingId);
+    return <article className={`shipment-card ${!order.invoice?.url ? "is-awaiting-invoice" : ""} ${uploadingId === order._id ? "is-uploading" : ""} ${generatingId === order._id ? "is-generating" : ""}`} data-order-id={order._id} key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+      <div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div>
+      <div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>
+      <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>
+        <div className="invoice-actions">
+          {order.invoice?.url && <button type="button" className="invoice-view-button" onClick={() => onViewInvoice(order)}>View invoice</button>}
+          <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : order.invoice?.url ? "Replace invoice" : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={busy} onChange={(event) => onUploadInvoice(order, event.target.files?.[0])} /></label>
+          <button type="button" className="invoice-generate-button" disabled={busy} onClick={() => onGenerateInvoice(order)}><FiFileText aria-hidden="true" />{generatingId === order._id ? "Generating..." : "Generate invoice"}</button>
+        </div>
+        {order.invoice?.url && <small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small>}
+      </div>
+    </article>;
+  };
+  return <div className="sales-shipment-groups">
+    <section className="shipment-status-group" aria-labelledby="waiting-invoice-heading">
+      <div className="shipment-status-heading"><div><p className="eyebrow">ACTION REQUIRED</p><h2 id="waiting-invoice-heading">Waiting invoice</h2></div><span>{waitingInvoiceOrders.length}</span></div>
+      {waitingInvoiceOrders.length ? <div className="shipment-list">{waitingInvoiceOrders.map(renderOrderCard)}</div> : <p className="shipment-group-empty">All ready shipments have an invoice.</p>}
+    </section>
+    <div className="shipment-status-divider" role="separator" aria-label="Uploaded invoices" />
+    <section className="shipment-status-group uploaded-invoice-group" aria-labelledby="uploaded-invoice-heading">
+      <div className="shipment-status-heading"><div><p className="eyebrow">COMPLETED</p><h2 id="uploaded-invoice-heading">Invoice uploaded</h2></div><span>{uploadedInvoiceOrders.length}</span></div>
+      {uploadedInvoiceOrders.length ? <div className="shipment-list">{uploadedInvoiceOrders.map(renderOrderCard)}</div> : <p className="shipment-group-empty">No invoices have been uploaded yet.</p>}
+    </section>
+  </div>;
+}
+function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [generatingId, setGeneratingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
   const lastShipmentTap = useRef({ orderId: "", time: 0 });
   useEffect(() => {
     let active = true;
@@ -2051,6 +2131,24 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
       window.setTimeout(() => setUploadingId(""), remainingHighlightTime);
     }
   };
+  const generateInvoice = async (order) => {
+    setGeneratingId(order._id);
+    setError("");
+    try {
+      const generated = await createShipmentInvoicePdf(order, userName);
+      const formData = new FormData();
+      formData.append("invoice", new File([generated.blob], generated.fileName, { type: "application/pdf" }));
+      const response = await fetch(`${API_URL}/shipments/${order._id}/invoice`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.map((item) => item._id === data._id ? data : item));
+      setInvoicePreview({ ...data.invoice, viewUrl: `${API_URL}/shipments/${data._id}/invoice/view` });
+    } catch (requestError) {
+      setError(requestError.message || "Unable to generate the invoice.");
+    } finally {
+      setGeneratingId("");
+    }
+  };
   const viewInvoice = (order) => {
     if (window.matchMedia("(max-width: 760px)").matches) {
       window.location.assign(`${API_URL}/shipments/${order._id}/invoice/download`);
@@ -2062,8 +2160,9 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
     if (event.target.closest("button, label, a, input")) return;
     const shipmentElement = event.target.closest(".shipment-card, .shipment-table tbody tr");
     if (!shipmentElement) return;
+    const orderId = shipmentElement.dataset.orderId;
     const shipmentIndex = Array.from(shipmentElement.parentElement.children).indexOf(shipmentElement);
-    const order = orders[shipmentIndex];
+    const order = orders.find((item) => item._id === orderId) || orders[shipmentIndex];
     if (!order) return;
     const now = Date.now();
     const previousTap = lastShipmentTap.current;
@@ -2079,7 +2178,7 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
     <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">Orders that are prepared and ready for dispatch.</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <p className="pending-orders-count">{orders.length} {orders.length === 1 ? "shipment" : "shipments"}</p>
-    {orders.length ? <LocationShipmentTable orders={orders} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} /> : <p className="empty-dashboard-state">No shipments are available yet.</p>}
+    {orders.length ? <LocationShipmentCards orders={orders} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} /> : <p className="empty-dashboard-state">No shipments are available yet.</p>}
     {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
     {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
   </section>;
@@ -2087,7 +2186,7 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
     <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">{canUploadInvoice ? "Upload an invoice for each shipment ready for dispatch." : "Orders that are prepared and ready for dispatch."}</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <p className="pending-orders-count">{orders.length} ready {orders.length === 1 ? "shipment" : "shipments"}</p>
-    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className={`shipment-card ${!order.invoice?.url ? "is-awaiting-invoice" : ""} ${uploadingId === order._id ? "is-uploading" : ""}`} key={order._id} onDoubleClick={() => setSelectedShipment(order)} title="Double-click to view order items"><div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div><div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>{canUploadInvoice && <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>{order.invoice?.url ? <><div className="invoice-actions"><button type="button" className="invoice-view-button" onClick={() => viewInvoice(order)}>View invoice</button><label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Replacing..." : "Replace invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label></div><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label>}</div>}</article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+    {orders.length ? <SalesShipmentCards orders={orders} uploadingId={uploadingId} generatingId={generatingId} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} onUploadInvoice={uploadInvoice} onGenerateInvoice={generateInvoice} /> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
     {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
     {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
   </section>;
@@ -2336,6 +2435,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
         [FiBarChart2 , "Sales"],
+        [FiUsers, "Customers"],
         [FiFileText, "Sales Order Series"],
         [FiUsers, "Users"],
         [FiMapPin, "Locations"],
@@ -2545,7 +2645,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               : "SALES REPRESENTATIVE"}
         </p>
         <h1>
-          {["Users", "Locations", "Roles"].includes(view)
+          {["Users", "Customers", "Locations", "Roles"].includes(view)
             ? `Manage ${view.toLowerCase()}.`
             : view === "Stock Updates"
               ? "Review stock update history."
@@ -2597,6 +2697,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   const content =
     view === "Users" ? (
       <UsersPage />
+    ) : view === "Customers" && admin ? (
+      <CustomersPage />
     ) : view === "Stock Updates" && admin ? (
       <StockUpdatesHistoryPage />
     ) : view === "GRN" && (admin || locationManager) ? (
@@ -2612,7 +2714,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : view === "Pending Orders" && locationManager ? (
       <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onReadyToShip={() => setV("Shipment")} />
     ) : view === "Shipment" && (locationManager || salesDepartment) ? (
-      <ShipmentsPage refreshKey={orderRefreshKey} canUploadInvoice={salesDepartment} />
+      <ShipmentsPage refreshKey={orderRefreshKey} canUploadInvoice={salesDepartment} userName={user.name} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         editingOrder={orderToEdit}
@@ -2652,6 +2754,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         {admin && view === "Dashboard" && <>
           <GrnSeriesSettings />
           <SalesOrderSeriesSettings />
+          <CustomerSeriesSettings />
         </>}
         {!admin && view === "Dashboard" && (
           <section className="sales-product-catalog">
