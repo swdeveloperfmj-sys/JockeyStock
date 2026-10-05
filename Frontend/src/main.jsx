@@ -1997,8 +1997,17 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
     </section>
   );
 }
-function ShipmentsPage({ refreshKey }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState("");
+function ShipmentItemsModal({ order, onClose }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="shipment-items-modal" role="dialog" aria-modal="true" aria-labelledby="shipment-items-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-title"><div><p className="eyebrow">SHIPMENT ORDER ITEMS</p><h2 id="shipment-items-title">{order.orderNumber}</h2><p>{order.customerName} · {order.totalQuantity} pieces</p></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close"><FiX /></button></div>
+      <div className="shipment-items-table-wrap"><table className="shipment-items-table"><thead><tr><th>Product</th><th>Code</th><th>Qty.</th><th>Unit price</th><th>Total</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.productId}><td>{item.productName}</td><td>{item.productCode}</td><td>{item.quantity}</td><td>LKR {Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td><td>LKR {Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
+      <div className="shipment-items-modal-total"><span>Order total</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+    </section>
+  </div>;
+}
+function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null);
   useEffect(() => {
     let active = true;
     fetch(`${API_URL}/shipments`).then(async (response) => {
@@ -2008,11 +2017,24 @@ function ShipmentsPage({ refreshKey }) {
     }).catch((requestError) => active && setError(requestError.message));
     return () => { active = false; };
   }, [refreshKey]);
+  const uploadInvoice = async (order, file) => {
+    if (!file) return;
+    setUploadingId(order._id); setError("");
+    try {
+      const formData = new FormData();
+      formData.append("invoice", file);
+      const response = await fetch(`${API_URL}/shipments/${order._id}/invoice`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.map((item) => item._id === data._id ? data : item));
+    } catch (requestError) { setError(requestError.message); } finally { setUploadingId(""); }
+  };
   return <section className="shipments-page">
-    <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">Orders that are prepared and ready for dispatch.</p></div></div>
+    <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">{canUploadInvoice ? "Upload an invoice for each shipment ready for dispatch." : "Orders that are prepared and ready for dispatch."}</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <p className="pending-orders-count">{orders.length} ready {orders.length === 1 ? "shipment" : "shipments"}</p>
-    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className="shipment-card" key={order._id}><div><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"} · {order.customerAddress}</small></div><div><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div></article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className="shipment-card" key={order._id} onDoubleClick={() => setSelectedShipment(order)} title="Double-click to view order items"><div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div><div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>{canUploadInvoice && <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>{order.invoice?.url ? <><div className="invoice-actions"><a href={order.invoice.url} target="_blank" rel="noreferrer">View invoice</a><label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Replacing..." : "Replace invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label></div><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label>}</div>}</article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+    {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
   </section>;
 }
 function StockUpdatesHistoryPage() {
@@ -2156,7 +2178,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [m, setM] = useState(false),
     [headerHidden, setHeaderHidden] = useState(false),
     [confirm, setConfirm] = useState(false),
-    [view, setV] = useState("Dashboard"),
+    [view, setV] = useState(() => ["SALES DEP", "SALES_DEP"].includes(user.role) ? "Shipment" : "Dashboard"),
     [timeGreeting, setTimeGreeting] = useState(getTimeGreeting),
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
@@ -2180,7 +2202,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [notificationsOpen, setNotificationsOpen] = useState(false),
     [toastNotification, setToastNotification] = useState(null),
     admin = user.role === "SUPER_ADMIN",
-    locationManager = user.role === "LOCATION_MANAGER";
+    locationManager = user.role === "LOCATION_MANAGER",
+    salesDepartment = ["SALES DEP", "SALES_DEP"].includes(user.role);
   useEffect(() => {
     const updateGreeting = () => setTimeGreeting(getTimeGreeting());
     const timer = window.setInterval(updateGreeting, 60_000);
@@ -2261,6 +2284,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiLayers, "Pending Orders"],
           [FiTruck, "Shipment"],
         ]
+      : salesDepartment
+        ? [[FiTruck, "Shipment"]]
       : [
           [FiBarChart2, "Dashboard"],
           [FiPlusCircle, "Create Order"],
@@ -2449,6 +2474,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             ? "SUPER ADMIN"
             : locationManager
               ? "LOCATION MANAGER"
+              : salesDepartment
+                ? "SALES DEPARTMENT"
               : "SALES REPRESENTATIVE"}
         </p>
         <h1>
@@ -2518,8 +2545,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <StockUpdatePage />
     ) : view === "Pending Orders" && locationManager ? (
       <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onReadyToShip={() => setV("Shipment")} />
-    ) : view === "Shipment" && locationManager ? (
-      <ShipmentsPage refreshKey={orderRefreshKey} />
+    ) : view === "Shipment" && (locationManager || salesDepartment) ? (
+      <ShipmentsPage refreshKey={orderRefreshKey} canUploadInvoice={salesDepartment} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         editingOrder={orderToEdit}
