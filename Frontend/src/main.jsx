@@ -44,6 +44,8 @@ import GrnPageNew from "./GrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
+import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
+import CustomersPage from "./CustomersPage.jsx";
 import logoUrl from "../assets/LOGO.png";
 import loginBackgroundUrl from "../assets/background.png";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
@@ -2339,6 +2341,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
         [FiBarChart2 , "Sales"],
+        [FiUsers, "Customers"],
         [FiFileText, "Sales Order Series"],
         [FiUsers, "Users"],
         [FiMapPin, "Locations"],
@@ -2548,7 +2551,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               : "SALES REPRESENTATIVE"}
         </p>
         <h1>
-          {["Users", "Locations", "Roles"].includes(view)
+          {["Users", "Customers", "Locations", "Roles"].includes(view)
             ? `Manage ${view.toLowerCase()}.`
             : view === "Stock Updates"
               ? "Review stock update history."
@@ -2600,6 +2603,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   const content =
     view === "Users" ? (
       <UsersPage />
+    ) : view === "Customers" && admin ? (
+      <CustomersPage />
     ) : view === "Stock Updates" && admin ? (
       <StockUpdatesHistoryPage />
     ) : view === "GRN" && (admin || locationManager) ? (
@@ -2655,6 +2660,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         {admin && view === "Dashboard" && <>
           <GrnSeriesSettings />
           <SalesOrderSeriesSettings />
+          <CustomerSeriesSettings />
         </>}
         {!admin && view === "Dashboard" && (
           <section className="sales-product-catalog">

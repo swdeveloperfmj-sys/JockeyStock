@@ -17,6 +17,7 @@ import Notification from './models/Notification.js';
 import StockUpdate from './models/StockUpdate.js';
 import Counter from './models/Counter.js';
 import GoodsReceivedNote from './models/GoodsReceivedNote.js';
+import Customer from './models/Customer.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -901,6 +902,108 @@ const formatSalesOrderNumber = (value, counter = {}) => {
   const padding = Number(counter.padding || 6);
   return `${prefix}${String(value).padStart(padding, '0')}`;
 };
+const formatCustomerNumber = (value, counter = {}) => {
+  const prefix = counter.prefix ?? 'CUS-';
+  const padding = Number(counter.padding || 6);
+  return `${prefix}${String(value).padStart(padding, '0')}`;
+};
+app.get('/api/customers/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the customer number series.' });
+  const counter = await Counter.findOne({ key: 'CUSTOMER' }).lean();
+  const settings = counter || { value: 0, prefix: 'CUS-', padding: 6 };
+  res.json({
+    prefix: settings.prefix ?? 'CUS-',
+    padding: Number(settings.padding || 6),
+    currentNumber: Number(settings.value || 0) > 0 ? formatCustomerNumber(settings.value, settings) : null,
+    nextNumber: formatCustomerNumber(Number(settings.value || 0) + 1, settings)
+  });
+});
+app.put('/api/customers/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the customer number series.' });
+
+  const nextNumber = String(req.body.nextNumber || '').trim().toUpperCase();
+  const match = nextNumber.match(/^(.*?)(\d+)$/);
+  if (!match || nextNumber.length > 50) return res.status(400).json({ message: 'Enter a pattern ending with numbers, for example CUS-000001.' });
+  const [, prefix, digits] = match;
+  const startingValue = Number(digits);
+  if (!Number.isSafeInteger(startingValue) || startingValue < 1 || digits.length > 12) return res.status(400).json({ message: 'The customer starting number must be between 1 and 12 digits.' });
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existingNumbers = await Customer.find({ customerCode: new RegExp(`^${escapedPrefix}\\d+$`, 'i') }).select('customerCode').lean();
+  const highestExisting = existingNumbers.reduce((highest, customer) => {
+    const suffix = String(customer.customerCode).slice(prefix.length);
+    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
+  }, 0);
+  if (startingValue <= highestExisting) return res.status(409).json({ message: `The next number must be greater than the existing ${formatCustomerNumber(highestExisting, { prefix, padding: digits.length })}.` });
+
+  const counter = await Counter.findOneAndUpdate(
+    { key: 'CUSTOMER' },
+    { $set: { value: startingValue - 1, prefix, padding: digits.length } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({
+    prefix: counter.prefix,
+    padding: counter.padding,
+    currentNumber: counter.value > 0 ? formatCustomerNumber(counter.value, counter) : null,
+    nextNumber: formatCustomerNumber(counter.value + 1, counter)
+  });
+});
+app.get('/api/customers', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view customers.' });
+  res.json(await Customer.find().sort({ createdAt: -1 }).limit(2000));
+});
+app.post('/api/customers', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can add customers.' });
+  const { customerName, billingAddress, contact = '', vatNo, discount = 0, paymentTerm, branches = [] } = req.body;
+  const numericDiscount = Number(discount);
+  const allowedPaymentTerms = ['30 DAYS', '45 DAYS', '60 DAYS', '90 DAYS'];
+  if (!customerName?.trim() || !billingAddress?.trim() || !vatNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and VAT number are required.' });
+  if (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
+  if (!allowedPaymentTerms.includes(paymentTerm)) return res.status(400).json({ message: 'Select a valid payment term.' });
+  if (!Array.isArray(branches) || branches.length > 100 || branches.some((branch) => !branch?.branchName?.trim())) {
+    return res.status(400).json({ message: 'Each branch must have a branch name.' });
+  }
+
+  const dbSession = await mongoose.startSession();
+  try {
+    let customer;
+    await dbSession.withTransaction(async () => {
+      const counter = await Counter.findOneAndUpdate(
+        { key: 'CUSTOMER' },
+        { $inc: { value: 1 }, $setOnInsert: { prefix: 'CUS-', padding: 6 } },
+        { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession }
+      );
+      [customer] = await Customer.create([{
+        customerCode: formatCustomerNumber(counter.value, counter),
+        customerName: customerName.trim(),
+        billingAddress: billingAddress.trim(),
+        contact: String(contact || '').trim(),
+        vatNo: vatNo.trim(),
+        discount: numericDiscount,
+        paymentTerm,
+        branches: branches.map((branch) => ({
+          branchName: branch.branchName.trim(),
+          address: String(branch.address || '').trim(),
+          contact: String(branch.contact || '').trim()
+        })),
+        createdBy: user.name
+      }], { session: dbSession });
+    });
+    res.status(201).json(customer);
+  } catch (error) {
+    res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'This customer code already exists.' : error.message || 'Unable to add the customer.' });
+  } finally {
+    await dbSession.endSession();
+  }
+});
 app.get('/api/orders/number-series', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
