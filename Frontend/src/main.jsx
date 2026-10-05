@@ -37,6 +37,7 @@ import {
   FiMapPin,
   FiCodesandbox,
   FiLayers,
+  FiTruck,
 } from "react-icons/fi";
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
@@ -1898,8 +1899,18 @@ function OrderCancellationConfirm({ order, actionLabel, busy, onClose, onConfirm
     </section>
   </div>;
 }
-function PendingOrdersPage({ refreshKey, onOrderChanged }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false);
+function ReadyToShipConfirm({ order, busy, onClose, onConfirm }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="ready-to-ship-title" onMouseDown={(event) => event.stopPropagation()}>
+      <p className="eyebrow">CONFIRM SHIPMENT</p>
+      <h2 id="ready-to-ship-title">Mark {order.orderNumber} ready to ship?</h2>
+      <p>This order will be removed from Pending Orders and added to the Shipment page.</p>
+      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Not now</button><button type="button" disabled={busy} onClick={onConfirm}>{busy ? "Preparing..." : "Confirm ready to ship"}</button></div>
+    </section>
+  </div>;
+}
+function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false), [readyTarget, setReadyTarget] = useState(null), [shippingId, setShippingId] = useState("");
   useEffect(() => {
     let active = true;
     const loadOrders = () => fetch(`${API_URL}/orders`)
@@ -1933,6 +1944,23 @@ function PendingOrdersPage({ refreshKey, onOrderChanged }) {
       setCancelling(false);
     }
   };
+  const markReadyToShip = async (order) => {
+    setShippingId(order._id);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/orders/${order._id}/ready-to-ship`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.filter((item) => item._id !== order._id));
+      setReadyTarget(null);
+      onOrderChanged();
+      onReadyToShip();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setShippingId("");
+    }
+  };
   return (
     <section className="pending-orders-page">
       <div className="page-title"><div><p className="eyebrow">SALES ORDERS</p><h1>Pending orders</h1><p className="page-description">Orders created by sales representatives for your location.</p></div></div>
@@ -1940,16 +1968,52 @@ function PendingOrdersPage({ refreshKey, onOrderChanged }) {
       <p className="pending-orders-count">{orders.length} pending {orders.length === 1 ? "order" : "orders"}</p>
       {orders.length ? <div className="pending-orders-list">
         {orders.map((order) => <article className="pending-order-card" key={order._id}>
-          <div className="pending-order-heading"><div><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{new Date(order.createdAt).toLocaleString()}</small></div><b>Pending</b></div>
-          <div className="pending-order-meta"><span><small>Sales rep</small>{order.salesRepName}</span><span><small>Phone</small>{order.customerPhone || "Not provided"}</span><span><small>Delivery address</small>{order.customerAddress}</span></div>
-          <div className="pending-order-items">{order.items.map((item) => <div key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} pcs</b></div>)}</div>
-          <div className="pending-order-total"><span>{order.totalQuantity} pieces</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-          <button type="button" className="cancel-pending-order" onClick={() => setCancelTarget(order)}>Cancel order</button>
+          <header className="pending-order-heading">
+            <div><span className="pending-order-number">{order.orderNumber}</span><h2>{order.customerName}</h2><small>Placed {new Date(order.createdAt).toLocaleString()}</small></div>
+            <b><i />Pending review</b>
+          </header>
+          <div className="pending-order-body">
+            <div className="pending-order-meta">
+              <span><small>Sales representative</small>{order.salesRepName}</span>
+              <span><small>Customer phone</small>{order.customerPhone || "Not provided"}</span>
+              <span className="pending-order-address"><small><FiMapPin aria-hidden="true" /> Delivery address</small>{order.customerAddress}</span>
+            </div>
+            <div className="pending-order-items">
+              <div className="pending-order-items-title"><span>Order items</span><small>{order.items.length} {order.items.length === 1 ? "product" : "products"}</small></div>
+              {order.items.map((item) => <div className="pending-order-item" key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} <small>pcs</small></b></div>)}
+            </div>
+            <footer className="pending-order-footer">
+              <div className="pending-order-total"><span>Total quantity <b>{order.totalQuantity} pieces</b></span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+              <div className="pending-order-actions">
+                <button type="button" className="cancel-pending-order" disabled={Boolean(shippingId)} onClick={() => setCancelTarget(order)}>Cancel order</button>
+              <button type="button" className="ready-to-ship-order" disabled={Boolean(shippingId)} onClick={() => setReadyTarget(order)}><FiTruck aria-hidden="true" />Ready to ship</button>
+              </div>
+            </footer>
+          </div>
         </article>)}
       </div> : <p className="empty-dashboard-state">No pending orders for this location.</p>}
       {cancelTarget && <OrderCancellationConfirm order={cancelTarget} actionLabel="Cancel order" busy={cancelling} onClose={() => setCancelTarget(null)} onConfirm={cancelOrder} />}
+      {readyTarget && <ReadyToShipConfirm order={readyTarget} busy={shippingId === readyTarget._id} onClose={() => setReadyTarget(null)} onConfirm={() => markReadyToShip(readyTarget)} />}
     </section>
   );
+}
+function ShipmentsPage({ refreshKey }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/shipments`).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      if (active) { setOrders(data); setError(""); }
+    }).catch((requestError) => active && setError(requestError.message));
+    return () => { active = false; };
+  }, [refreshKey]);
+  return <section className="shipments-page">
+    <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">Orders that are prepared and ready for dispatch.</p></div></div>
+    {error && <p className="dashboard-error">{error}</p>}
+    <p className="pending-orders-count">{orders.length} ready {orders.length === 1 ? "shipment" : "shipments"}</p>
+    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className="shipment-card" key={order._id}><div><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"} · {order.customerAddress}</small></div><div><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div></article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+  </section>;
 }
 function StockUpdatesHistoryPage() {
   const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false);
@@ -2195,6 +2259,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiFileText, "GRN"],
           [FiPlusCircle, "Create Order"],
           [FiLayers, "Pending Orders"],
+          [FiTruck, "Shipment"],
         ]
       : [
           [FiBarChart2, "Dashboard"],
@@ -2399,6 +2464,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Update factory stock."
               : view === "Pending Orders"
                 ? "Review pending sales orders."
+              : view === "Shipment"
+                ? "Orders prepared for dispatch."
               : view === "Create Order"
                 ? "Create sales order."
             : view === "Sales"
@@ -2450,7 +2517,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : view === "Stock Update" && locationManager ? (
       <StockUpdatePage />
     ) : view === "Pending Orders" && locationManager ? (
-      <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} />
+      <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onReadyToShip={() => setV("Shipment")} />
+    ) : view === "Shipment" && locationManager ? (
+      <ShipmentsPage refreshKey={orderRefreshKey} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         editingOrder={orderToEdit}

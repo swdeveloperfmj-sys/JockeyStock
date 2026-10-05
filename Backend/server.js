@@ -348,6 +348,13 @@ app.get('/api/orders', async (req, res) => {
   res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200));
 });
 
+app.get('/api/shipments', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can view shipments.' });
+  res.json(await Order.find({ location: user.location, status: 'COMPLETED' }).sort({ updatedAt: -1 }).limit(200));
+});
+
 const isTodayInSriLanka = (date) => {
   const dateParts = (value) => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit'
@@ -436,6 +443,33 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     res.status(error.message === 'This pending order is no longer available.' ? 409 : 400).json({ message: error.message || 'Unable to cancel the order.' });
   } finally {
     await dbSession.endSession();
+  }
+});
+
+// Marking an order ready to ship finalizes the location manager's review.  The
+// stock was already reserved when the order was created, so no stock movement
+// is needed here.
+app.post('/api/orders/:id/ready-to-ship', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can prepare orders for shipping.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
+
+  try {
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.id, location: user.location, status: 'PENDING' },
+      { $set: { status: 'COMPLETED' } },
+      { new: true }
+    );
+    if (!order) return res.status(409).json({ message: 'This pending order is no longer available.' });
+    publishOrderUpdate();
+    try {
+      const recipients = await User.find({ _id: order.salesRepId }).select('_id email contactNumber');
+      await notifyOrderRecipients(recipients, `Order ready to ship ${order.orderNumber}`, `${order.orderNumber} for ${order.customerName} is ready to ship.`);
+    } catch (notificationError) { console.error('Ready-to-ship notification failed:', notificationError.message); }
+    res.json(order);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to prepare the order for shipping.' });
   }
 });
 
