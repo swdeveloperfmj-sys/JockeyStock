@@ -2006,21 +2006,24 @@ function ShipmentItemsModal({ order, onClose }) {
     </section>
   </div>;
 }
-function LocationShipmentTable({ orders, onOpenItems, onViewInvoice }) {
-  return <div className="shipment-table-wrap">
-    <table className="shipment-table">
-      <thead><tr><th>Order no.</th><th>Customer</th><th>Phone</th><th>Delivery address</th><th>Items</th><th>Total</th><th>Invoice</th><th>Status</th></tr></thead>
-      <tbody>{orders.map((order) => <tr key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
-        <td><strong>{order.orderNumber}</strong></td>
-        <td>{order.customerName}</td>
-        <td>{order.customerPhone || "Not provided"}</td>
-        <td>{order.customerAddress}</td>
-        <td>{order.totalQuantity} pcs</td>
-        <td><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td>
-        <td>{order.invoice?.url ? <button type="button" className="invoice-view-button shipment-table-invoice" onClick={() => onViewInvoice(order)}>View invoice</button> : <span className="shipment-invoice-missing">Not uploaded</span>}</td>
-        <td>{order.invoice?.url ? <span className="shipment-ready-status"><FiTruck aria-hidden="true" /> Ready to ship</span> : <span className="shipment-waiting-status"><FiFileText aria-hidden="true" /> Waiting invoice</span>}</td>
-      </tr>)}</tbody>
-    </table>
+function LocationShipmentCards({ orders, onOpenItems, onViewInvoice }) {
+  return <div className="shipment-list">
+    {orders.map((order) => <article className={`shipment-card location-shipment-card ${order.invoice?.url ? "" : "awaiting-invoice"}`} key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+      <div className="shipment-card-main">
+        <span>{order.orderNumber}</span>
+        <h2>{order.customerName}</h2>
+        <small>{order.customerPhone || "No phone number"}</small>
+        <p><FiMapPin aria-hidden="true" />{order.customerAddress}</p>
+      </div>
+      <div className="shipment-total">
+        <small>{order.totalQuantity} pieces · Order total</small>
+        <strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+        {order.invoice?.url ? <b><FiTruck aria-hidden="true" /> Ready to ship</b> : <b className="shipment-waiting-status"><FiFileText aria-hidden="true" /> Waiting invoice</b>}
+      </div>
+      <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>
+        {order.invoice?.url ? <><button type="button" className="invoice-view-button location-invoice-view" onClick={() => onViewInvoice(order)}>View invoice</button><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <small className="shipment-awaiting-copy">Invoice has not been uploaded yet.</small>}
+      </div>
+    </article>)}
   </div>;
 }
 function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
@@ -2079,7 +2082,7 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
     <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">Orders that are prepared and ready for dispatch.</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <p className="pending-orders-count">{orders.length} {orders.length === 1 ? "shipment" : "shipments"}</p>
-    {orders.length ? <LocationShipmentTable orders={orders} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} /> : <p className="empty-dashboard-state">No shipments are available yet.</p>}
+    {orders.length ? <LocationShipmentCards orders={orders} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} /> : <p className="empty-dashboard-state">No shipments are available yet.</p>}
     {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
     {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
   </section>;

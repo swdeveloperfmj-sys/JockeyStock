@@ -3416,7 +3416,12 @@ label {
 .shipment-card strong { color: var(--ink); font-size: .96rem; white-space: nowrap; }
 .shipment-card b { display: inline-flex; align-items: center; gap: 5px; margin-top: 5px; padding: 5px 8px; border-radius: 999px; background: rgba(45, 157, 120, .12); color: #218463; font-size: .65rem; text-transform: uppercase; white-space: nowrap; }
 .shipment-card b svg { width: 13px; height: 13px; }
+.location-shipment-card.awaiting-invoice { border-color: rgba(238, 151, 47, .55); background: linear-gradient(135deg, rgba(238, 151, 47, .08), var(--surface) 72%); }
+.location-shipment-card.awaiting-invoice::before { background: #d88927; }
+.shipment-card b.shipment-waiting-status { background: rgba(238, 151, 47, .14); color: #b36a12; }
 .shipment-invoice { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; padding-top: 15px; border-top: 1px solid var(--border); }
+.location-invoice-view { width: auto; min-height: 37px; margin: 0; padding: 8px 14px; white-space: nowrap; }
+.shipment-awaiting-copy { color: #b36a12 !important; font-weight: 700; }
 .invoice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .invoice-actions > a,
 .invoice-actions .invoice-view-button,
@@ -3618,8 +3623,8 @@ label {
   .pending-order-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .pending-order-actions button { width: 100%; }
   .shipment-list { grid-template-columns: 1fr; }
-  .shipment-card { min-height: 0; padding: 18px; }
-  .shipment-total { justify-items: start; min-width: 0; padding-left: 12px; text-align: left; }
+  .shipment-card { grid-template-columns: 1fr; min-height: 0; padding: 18px; }
+  .shipment-total { justify-items: start; min-width: 0; padding: 14px 0 0; border-top: 1px solid var(--border); border-left: 0; text-align: left; }
   .shipment-invoice { align-items: flex-start; flex-direction: column; }
   .stock-update-filters { grid-template-columns: 1fr 1fr; }
   .stock-update-filters input { grid-column: 1 / -1; }
