@@ -597,9 +597,9 @@ app.patch('/api/notifications/:id/read', async (req, res) => {
 app.post('/api/orders', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  const { customerName, customerPhone = '', customerAddress, items } = req.body;
-  if (!customerName?.trim() || !customerAddress?.trim() || !Array.isArray(items) || !items.length) {
-    return res.status(400).json({ message: 'Customer name, address, and at least one order item are required.' });
+  const { customerId, customerBranchId = 'billing', items } = req.body;
+  if (!mongoose.isValidObjectId(customerId) || !Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Select a customer and add at least one order item.' });
   }
   if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
     return res.status(400).json({ message: 'Each order item must have a valid product and quantity.' });
@@ -609,6 +609,12 @@ app.post('/api/orders', async (req, res) => {
   try {
     let createdOrder;
     await dbSession.withTransaction(async () => {
+      const customer = await Customer.findById(customerId).session(dbSession);
+      if (!customer) throw new Error('The selected customer no longer exists.');
+      const selectedBranch = customerBranchId === 'billing' ? null : customer.branches.id(customerBranchId);
+      if (customerBranchId !== 'billing' && !selectedBranch) throw new Error('The selected customer branch no longer exists.');
+      const deliveryAddress = selectedBranch?.address || customer.billingAddress;
+      const deliveryContact = selectedBranch?.contact || customer.contact || '';
       const requestedItems = await Promise.all(items.map(async (item) => {
         const product = await Product.findById(item.productId).session(dbSession);
         if (!product) throw new Error('One of the selected products no longer exists.');
@@ -644,9 +650,16 @@ app.post('/api/orders', async (req, res) => {
       );
       [createdOrder] = await Order.create([{
         orderNumber: formatSalesOrderNumber(orderCounter.value, orderCounter),
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
-        customerAddress: customerAddress.trim(),
+        customerId: customer._id,
+        customerCode: customer.customerCode,
+        customerName: customer.customerName,
+        customerPhone: deliveryContact,
+        customerAddress: deliveryAddress,
+        customerBranchId: selectedBranch ? String(selectedBranch._id) : 'billing',
+        customerBranchName: selectedBranch?.branchName || 'Billing address',
+        customerVatNo: customer.vatNo,
+        customerDiscount: customer.discount,
+        customerPaymentTerm: customer.paymentTerm,
         salesRepId: user._id,
         salesRepName: user.name,
         location: orderPlants[0],
@@ -682,9 +695,9 @@ app.patch('/api/orders/:id', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   if (user.role !== 'SALES_REP') return res.status(403).json({ message: 'Only Sales Representatives can edit orders.' });
-  const { customerName, customerPhone = '', customerAddress, items } = req.body;
-  if (!mongoose.isValidObjectId(req.params.id) || !customerName?.trim() || !customerAddress?.trim() || !Array.isArray(items) || !items.length) {
-    return res.status(400).json({ message: 'Customer name, address, and at least one order item are required.' });
+  const { customerId, customerBranchId = 'billing', items } = req.body;
+  if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(customerId) || !Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Select a customer and add at least one order item.' });
   }
   if (items.some((item) => !mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)) {
     return res.status(400).json({ message: 'Each order item must have a valid product and quantity.' });
@@ -698,6 +711,12 @@ app.patch('/api/orders/:id', async (req, res) => {
       if (!order || order.status !== 'PENDING' || String(order.salesRepId) !== String(user._id) || !isTodayInSriLanka(order.createdAt)) {
         throw new Error('Only your pending orders created today can be edited.');
       }
+      const customer = await Customer.findById(customerId).session(dbSession);
+      if (!customer) throw new Error('The selected customer no longer exists.');
+      const selectedBranch = customerBranchId === 'billing' ? null : customer.branches.id(customerBranchId);
+      if (customerBranchId !== 'billing' && !selectedBranch) throw new Error('The selected customer branch no longer exists.');
+      const deliveryAddress = selectedBranch?.address || customer.billingAddress;
+      const deliveryContact = selectedBranch?.contact || customer.contact || '';
       changedProductIds = order.items.map((item) => item.productId);
       for (const oldItem of order.items) {
         await Product.updateOne({ _id: oldItem.productId, plant: order.location }, { $inc: { openingStock: oldItem.quantity } }, { session: dbSession });
@@ -714,9 +733,16 @@ app.patch('/api/orders/:id', async (req, res) => {
         const result = await Product.updateOne({ _id: item.productId, openingStock: { $gte: item.quantity } }, { $inc: { openingStock: -item.quantity } }, { session: dbSession });
         if (!result.modifiedCount) throw new Error('Product stock changed. Please review the order and try again.');
       }
-      order.customerName = customerName.trim();
-      order.customerPhone = customerPhone.trim();
-      order.customerAddress = customerAddress.trim();
+      order.customerId = customer._id;
+      order.customerCode = customer.customerCode;
+      order.customerName = customer.customerName;
+      order.customerPhone = deliveryContact;
+      order.customerAddress = deliveryAddress;
+      order.customerBranchId = selectedBranch ? String(selectedBranch._id) : 'billing';
+      order.customerBranchName = selectedBranch?.branchName || 'Billing address';
+      order.customerVatNo = customer.vatNo;
+      order.customerDiscount = customer.discount;
+      order.customerPaymentTerm = customer.paymentTerm;
       order.items = requestedItems;
       order.totalQuantity = requestedItems.reduce((sum, item) => sum + item.quantity, 0);
       order.totalAmount = requestedItems.reduce((sum, item) => sum + item.total, 0);
@@ -955,7 +981,7 @@ app.put('/api/customers/number-series', async (req, res) => {
 app.get('/api/customers', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view customers.' });
+  if (!['SUPER_ADMIN', 'SALES_REP', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view customers.' });
   res.json(await Customer.find().sort({ createdAt: -1 }).limit(2000));
 });
 app.post('/api/customers', async (req, res) => {
@@ -1002,6 +1028,42 @@ app.post('/api/customers', async (req, res) => {
     res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'This customer code already exists.' : error.message || 'Unable to add the customer.' });
   } finally {
     await dbSession.endSession();
+  }
+});
+app.patch('/api/customers/:id', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can update customers.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid customer.' });
+  const { customerName, billingAddress, contact = '', vatNo, discount = 0, paymentTerm, branches = [] } = req.body;
+  const numericDiscount = Number(discount);
+  const allowedPaymentTerms = ['30 DAYS', '45 DAYS', '60 DAYS', '90 DAYS'];
+  if (!customerName?.trim() || !billingAddress?.trim() || !vatNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and VAT number are required.' });
+  if (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
+  if (!allowedPaymentTerms.includes(paymentTerm)) return res.status(400).json({ message: 'Select a valid payment term.' });
+  if (!Array.isArray(branches) || branches.length > 100 || branches.some((branch) => !branch?.branchName?.trim())) {
+    return res.status(400).json({ message: 'Each branch must have a branch name.' });
+  }
+  try {
+    const customer = await Customer.findByIdAndUpdate(req.params.id, {
+      $set: {
+        customerName: customerName.trim(),
+        billingAddress: billingAddress.trim(),
+        contact: String(contact || '').trim(),
+        vatNo: vatNo.trim(),
+        discount: numericDiscount,
+        paymentTerm,
+        branches: branches.map((branch) => ({
+          branchName: branch.branchName.trim(),
+          address: String(branch.address || '').trim(),
+          contact: String(branch.contact || '').trim()
+        }))
+      }
+    }, { new: true, runValidators: true });
+    if (!customer) return res.status(404).json({ message: 'This customer no longer exists.' });
+    res.json(customer);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to update the customer.' });
   }
 });
 app.get('/api/orders/number-series', async (req, res) => {

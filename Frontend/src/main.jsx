@@ -768,6 +768,9 @@ function RolesPage() {
 function SalesOrderPage({ onOrderCreated, editingOrder }) {
   const draft = editingOrder ? {} : getOrderDraft();
   const [products, setProducts] = useState([]),
+    [customers, setCustomers] = useState([]),
+    [selectedCustomerId, setSelectedCustomerId] = useState(() => draft.selectedCustomerId || ""),
+    [selectedCustomerLocation, setSelectedCustomerLocation] = useState(() => draft.selectedCustomerLocation || "billing"),
     [cart, setCart] = useState(() => draft.cart || []),
     [customerName, setCustomerName] = useState(() => draft.customerName || ""),
     [customerPhone, setCustomerPhone] = useState(
@@ -777,7 +780,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       () => draft.customerAddress || "",
     ),
     [customerLocked, setCustomerLocked] = useState(() =>
-      Boolean(draft.customerLocked),
+      Boolean(draft.customerLocked && draft.selectedCustomerId),
     ),
     [productSearch, setProductSearch] = useState(""),
     [selectedStyle, setSelectedStyle] = useState(""),
@@ -796,10 +799,12 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
         customerName,
         customerPhone,
         customerAddress,
+        selectedCustomerId,
+        selectedCustomerLocation,
         customerLocked,
       }),
     );
-  }, [cart, customerName, customerPhone, customerAddress, customerLocked]);
+  }, [cart, customerName, customerPhone, customerAddress, selectedCustomerId, selectedCustomerLocation, customerLocked]);
   useEffect(() => {
     fetch(`${API_URL}/products`)
       .then(async (r) => {
@@ -811,7 +816,17 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => {
-    if (!editingOrder || !products.length) return;
+    fetch(`${API_URL}/customers`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw Error(data.message);
+        return data;
+      })
+      .then(setCustomers)
+      .catch((requestError) => setError(requestError.message));
+  }, []);
+  useEffect(() => {
+    if (!editingOrder || !products.length || !customers.length) return;
     setCart(editingOrder.items.map((item) => {
       const product = products.find((candidate) => candidate._id === item.productId);
       return { productId: item.productId, product: product || { ...item, _id: item.productId }, quantity: item.quantity };
@@ -819,9 +834,13 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerName(editingOrder.customerName);
     setCustomerPhone(editingOrder.customerPhone || "");
     setCustomerAddress(editingOrder.customerAddress);
-    setCustomerLocked(true);
+    const linkedCustomer = customers.find((customer) => String(customer._id) === String(editingOrder.customerId))
+      || customers.find((customer) => customer.customerName === editingOrder.customerName);
+    setSelectedCustomerId(linkedCustomer?._id || "");
+    setSelectedCustomerLocation(editingOrder.customerBranchId || "billing");
+    setCustomerLocked(Boolean(linkedCustomer));
     sessionStorage.removeItem(ORDER_DRAFT_KEY);
-  }, [editingOrder, products]);
+  }, [editingOrder, products, customers]);
   useEffect(() => {
     const events = new EventSource(`${API_URL}/stock-events`, {
       withCredentials: true,
@@ -884,6 +903,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     (sum, item) => sum + item.quantity * Number(item.product.sellingPrice || 0),
     0,
   );
+  const selectedCustomer = customers.find((customer) => customer._id === selectedCustomerId);
   const availableProducts = products.filter(
     (product) =>
       product.openingStock > 0 &&
@@ -990,10 +1010,28 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     selectStyle("");
     setError("");
   };
+  const selectCustomer = (customerId) => {
+    const customer = customers.find((item) => item._id === customerId);
+    setSelectedCustomerId(customerId);
+    setSelectedCustomerLocation("billing");
+    setCustomerName(customer?.customerName || "");
+    setCustomerPhone(customer?.contact || "");
+    setCustomerAddress(customer?.billingAddress || "");
+    setCustomerLocked(false);
+    setError("");
+  };
+  const selectCustomerLocation = (locationId) => {
+    if (!selectedCustomer) return;
+    const branch = locationId === "billing" ? null : selectedCustomer.branches?.find((item) => item._id === locationId);
+    setSelectedCustomerLocation(locationId);
+    setCustomerPhone(branch?.contact || selectedCustomer.contact || "");
+    setCustomerAddress(branch?.address || selectedCustomer.billingAddress || "");
+    setError("");
+  };
   const lockCustomer = () => {
-    if (!customerName.trim() || !customerAddress.trim())
+    if (!selectedCustomerId || !customerName.trim() || !customerAddress.trim())
       return setError(
-        "Enter the customer name and delivery address before continuing.",
+        "Select a customer and delivery location before continuing.",
       );
     setCustomerLocked(true);
     setError("");
@@ -1003,6 +1041,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerName("");
     setCustomerPhone("");
     setCustomerAddress("");
+    setSelectedCustomerId("");
+    setSelectedCustomerLocation("billing");
     setCustomerLocked(false);
     setProductSearch("");
     setSelectedStyle("");
@@ -1026,9 +1066,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
         method: editingOrder ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerName,
-          customerPhone,
-          customerAddress,
+          customerId: selectedCustomerId,
+          customerBranchId: selectedCustomerLocation,
           items: cart.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
@@ -1041,6 +1080,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       setCustomerName("");
       setCustomerPhone("");
       setCustomerAddress("");
+      setSelectedCustomerId("");
+      setSelectedCustomerLocation("billing");
       setCustomerLocked(false);
       sessionStorage.removeItem(ORDER_DRAFT_KEY);
       onOrderCreated(order);
@@ -1084,33 +1125,36 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
               ) : null}
             </div>
             <div className="customer-fields">
-              <label>
-                Customer name *
-                <input
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  disabled={customerLocked}
-                  required
-                />
-              </label>
-              <label>
-                Phone number
-                <input
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  disabled={customerLocked}
-                />
-              </label>
               <label className="customer-address">
-                Delivery address *
-                <textarea
-                  value={customerAddress}
-                  onChange={(e) => setCustomerAddress(e.target.value)}
-                  disabled={customerLocked}
-                  required
-                  rows="3"
-                />
+                Select customer *
+                <select value={selectedCustomerId} onChange={(event) => selectCustomer(event.target.value)} disabled={customerLocked} required>
+                  <option value="">Choose customer</option>
+                  {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.customerCode} — {customer.customerName}</option>)}
+                </select>
               </label>
+              {selectedCustomer && <>
+                <label>
+                  Delivery location *
+                  <select value={selectedCustomerLocation} onChange={(event) => selectCustomerLocation(event.target.value)} disabled={customerLocked}>
+                    <option value="billing">Billing address</option>
+                    {(selectedCustomer.branches || []).map((branch) => <option key={branch._id} value={branch._id}>{branch.branchName}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Contact
+                  <input value={customerPhone || "Not provided"} readOnly />
+                </label>
+                <label className="customer-address">
+                  Delivery address
+                  <textarea value={customerAddress} readOnly rows="3" />
+                </label>
+                <div className="selected-customer-summary">
+                  <span><small>Customer code</small>{selectedCustomer.customerCode}</span>
+                  <span><small>VAT No.</small>{selectedCustomer.vatNo}</span>
+                  <span><small>Discount</small>{Number(selectedCustomer.discount || 0).toLocaleString()}%</span>
+                  <span><small>Payment term</small>{selectedCustomer.paymentTerm}</span>
+                </div>
+              </>}
             </div>
             {!customerLocked && (
               <button
