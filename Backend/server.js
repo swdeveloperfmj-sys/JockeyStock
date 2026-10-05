@@ -296,7 +296,10 @@ let legacyOrderMigration;
 const migrateLegacyOrders = async () => {
   if (legacyOrderMigration) return legacyOrderMigration;
   legacyOrderMigration = (async () => {
-    const orders = await Order.find({}).select('_id items.productId');
+    // Only migrate records created before orders stored their supplying
+    // location.  Re-running this after a server restart must never rewrite
+    // current orders (in particular, completed shipments).
+    const orders = await Order.find({ location: { $exists: false } }).select('_id items.productId');
     if (!orders.length) return;
     const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))))];
     const products = await Product.find({ _id: { $in: productIds } }).select('_id plant');
@@ -304,7 +307,7 @@ const migrateLegacyOrders = async () => {
     await Promise.all(orders.map((order) => {
       const plants = [...new Set(order.items.map((item) => plantByProduct.get(String(item.productId))).filter(Boolean))];
       return plants.length === 1
-        ? Order.updateOne({ _id: order._id }, { $set: { location: plants[0], status: 'PENDING' } })
+        ? Order.updateOne({ _id: order._id }, { $set: { location: plants[0] } })
         : null;
     }));
   })().catch((error) => {
@@ -361,6 +364,10 @@ const receiveInvoice = (req, res, next) => invoiceUpload(req, res, (error) => {
 });
 
 const isSalesDepartment = (user) => ['SALES DEP', 'SALES_DEP'].includes(user?.role);
+const canAccessShipmentInvoice = (user, order) => (
+  (isSalesDepartment(user) && user.location === INVENTORY_LOCATION)
+  || (user.role === 'LOCATION_MANAGER' && user.location === order.location)
+);
 
 app.get('/api/shipments', async (req, res) => {
   const user = await currentUser(req);
@@ -393,6 +400,60 @@ app.post('/api/shipments/:id/invoice', receiveInvoice, async (req, res) => {
     res.json(order);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to upload the invoice.' });
+  }
+});
+
+app.get('/api/shipments/:id/invoice/download', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid shipment.' });
+  try {
+    const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' }).select('invoice location');
+    if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
+    if (!canAccessShipmentInvoice(user, order)) return res.status(403).json({ message: 'You are not allowed to download this invoice.' });
+    if (!order.invoice?.url) return res.status(404).json({ message: 'No invoice has been uploaded for this shipment.' });
+    const invoiceResponse = await fetch(order.invoice.url);
+    if (!invoiceResponse.ok) throw new Error('The invoice file could not be downloaded.');
+    const fileName = String(order.invoice.fileName || 'invoice').replace(/[\\/:*?"<>|]/g, '_');
+    res.set({ 'Content-Type': invoiceResponse.headers.get('content-type') || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${fileName}"` });
+    res.send(Buffer.from(await invoiceResponse.arrayBuffer()));
+  } catch (error) {
+    res.status(502).json({ message: error.message || 'Unable to download the invoice.' });
+  }
+});
+
+// Cloudinary raw-file URLs are returned as attachments, which causes browsers
+// to download PDFs instead of rendering them in the shipment invoice preview.
+app.get('/api/shipments/:id/invoice/view', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid shipment.' });
+  try {
+    const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' }).select('invoice location');
+    if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
+    if (!canAccessShipmentInvoice(user, order)) return res.status(403).json({ message: 'You are not allowed to view this invoice.' });
+    if (!order.invoice?.url) return res.status(404).json({ message: 'No invoice has been uploaded for this shipment.' });
+    const invoiceResponse = await fetch(order.invoice.url);
+    if (!invoiceResponse.ok) throw new Error('The invoice file could not be loaded.');
+    const fileName = String(order.invoice.fileName || 'invoice').replace(/[\\/:*?"<>|]/g, '_');
+    const lowerFileName = fileName.toLowerCase();
+    const previewContentType = lowerFileName.endsWith('.pdf')
+      ? 'application/pdf'
+      : lowerFileName.endsWith('.png')
+        ? 'image/png'
+        : lowerFileName.endsWith('.webp')
+          ? 'image/webp'
+          : lowerFileName.endsWith('.jpg') || lowerFileName.endsWith('.jpeg')
+            ? 'image/jpeg'
+            : invoiceResponse.headers.get('content-type') || 'application/octet-stream';
+    res.set({
+      'Content-Type': previewContentType,
+      'Content-Disposition': `inline; filename="${fileName}"`,
+      'Cache-Control': 'private, no-store'
+    });
+    res.send(Buffer.from(await invoiceResponse.arrayBuffer()));
+  } catch (error) {
+    res.status(502).json({ message: error.message || 'Unable to view the invoice.' });
   }
 });
 

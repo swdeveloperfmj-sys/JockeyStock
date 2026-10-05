@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 import {
@@ -2006,8 +2006,26 @@ function ShipmentItemsModal({ order, onClose }) {
     </section>
   </div>;
 }
+function LocationShipmentTable({ orders, onOpenItems, onViewInvoice }) {
+  return <div className="shipment-table-wrap">
+    <table className="shipment-table">
+      <thead><tr><th>Order no.</th><th>Customer</th><th>Phone</th><th>Delivery address</th><th>Items</th><th>Total</th><th>Invoice</th><th>Status</th></tr></thead>
+      <tbody>{orders.map((order) => <tr key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+        <td><strong>{order.orderNumber}</strong></td>
+        <td>{order.customerName}</td>
+        <td>{order.customerPhone || "Not provided"}</td>
+        <td>{order.customerAddress}</td>
+        <td>{order.totalQuantity} pcs</td>
+        <td><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td>
+        <td>{order.invoice?.url ? <button type="button" className="invoice-view-button shipment-table-invoice" onClick={() => onViewInvoice(order)}>View invoice</button> : <span className="shipment-invoice-missing">Not uploaded</span>}</td>
+        <td>{order.invoice?.url ? <span className="shipment-ready-status"><FiTruck aria-hidden="true" /> Ready to ship</span> : <span className="shipment-waiting-status"><FiFileText aria-hidden="true" /> Waiting invoice</span>}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
+}
 function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null);
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
+  const lastShipmentTap = useRef({ orderId: "", time: 0 });
   useEffect(() => {
     let active = true;
     fetch(`${API_URL}/shipments`).then(async (response) => {
@@ -2019,6 +2037,7 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
   }, [refreshKey]);
   const uploadInvoice = async (order, file) => {
     if (!file) return;
+    const uploadStartedAt = Date.now();
     setUploadingId(order._id); setError("");
     try {
       const formData = new FormData();
@@ -2027,15 +2046,62 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
       setOrders((items) => items.map((item) => item._id === data._id ? data : item));
-    } catch (requestError) { setError(requestError.message); } finally { setUploadingId(""); }
+    } catch (requestError) { setError(requestError.message); } finally {
+      const remainingHighlightTime = Math.max(0, 1000 - (Date.now() - uploadStartedAt));
+      window.setTimeout(() => setUploadingId(""), remainingHighlightTime);
+    }
   };
-  return <section className="shipments-page">
+  const viewInvoice = (order) => {
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      window.location.assign(`${API_URL}/shipments/${order._id}/invoice/download`);
+      return;
+    }
+    setInvoicePreview({ ...order.invoice, viewUrl: `${API_URL}/shipments/${order._id}/invoice/view` });
+  };
+  const openShipmentOnDoubleTap = (event) => {
+    if (event.target.closest("button, label, a, input")) return;
+    const shipmentElement = event.target.closest(".shipment-card, .shipment-table tbody tr");
+    if (!shipmentElement) return;
+    const shipmentIndex = Array.from(shipmentElement.parentElement.children).indexOf(shipmentElement);
+    const order = orders[shipmentIndex];
+    if (!order) return;
+    const now = Date.now();
+    const previousTap = lastShipmentTap.current;
+    if (previousTap.orderId === order._id && now - previousTap.time <= 500) {
+      event.preventDefault();
+      lastShipmentTap.current = { orderId: "", time: 0 };
+      setSelectedShipment(order);
+      return;
+    }
+    lastShipmentTap.current = { orderId: order._id, time: now };
+  };
+  if (!canUploadInvoice) return <section className="shipments-page" onTouchEnd={openShipmentOnDoubleTap}>
+    <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">Orders that are prepared and ready for dispatch.</p></div></div>
+    {error && <p className="dashboard-error">{error}</p>}
+    <p className="pending-orders-count">{orders.length} {orders.length === 1 ? "shipment" : "shipments"}</p>
+    {orders.length ? <LocationShipmentTable orders={orders} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} /> : <p className="empty-dashboard-state">No shipments are available yet.</p>}
+    {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
+    {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
+  </section>;
+  return <section className="shipments-page" onTouchEnd={openShipmentOnDoubleTap}>
     <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">{canUploadInvoice ? "Upload an invoice for each shipment ready for dispatch." : "Orders that are prepared and ready for dispatch."}</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <p className="pending-orders-count">{orders.length} ready {orders.length === 1 ? "shipment" : "shipments"}</p>
-    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className="shipment-card" key={order._id} onDoubleClick={() => setSelectedShipment(order)} title="Double-click to view order items"><div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div><div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>{canUploadInvoice && <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>{order.invoice?.url ? <><div className="invoice-actions"><a href={order.invoice.url} target="_blank" rel="noreferrer">View invoice</a><label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Replacing..." : "Replace invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label></div><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label>}</div>}</article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className={`shipment-card ${!order.invoice?.url ? "is-awaiting-invoice" : ""} ${uploadingId === order._id ? "is-uploading" : ""}`} key={order._id} onDoubleClick={() => setSelectedShipment(order)} title="Double-click to view order items"><div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div><div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>{canUploadInvoice && <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>{order.invoice?.url ? <><div className="invoice-actions"><button type="button" className="invoice-view-button" onClick={() => viewInvoice(order)}>View invoice</button><label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Replacing..." : "Replace invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label></div><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label>}</div>}</article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
     {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
+    {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
   </section>;
+}
+function InvoicePreviewModal({ invoice, onClose }) {
+  const isPdf = /\.pdf(?:$|\?)/i.test(invoice.fileName || invoice.url);
+  const previewUrl = invoice.viewUrl || invoice.url;
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="invoice-preview-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-title"><div><p className="eyebrow">UPLOADED INVOICE</p><h2 id="invoice-preview-title">{invoice.fileName || "Invoice"}</h2></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close invoice"><FiX /></button></div>
+      <div className="invoice-preview-canvas">{isPdf ? <iframe src={previewUrl} title={invoice.fileName || "Invoice preview"} /> : <img src={previewUrl} alt={invoice.fileName || "Invoice"} />}</div>
+      <div className="invoice-preview-footer"><a href={previewUrl} target="_blank" rel="noreferrer">Open in new tab</a></div>
+    </section>
+  </div>;
 }
 function StockUpdatesHistoryPage() {
   const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false);
