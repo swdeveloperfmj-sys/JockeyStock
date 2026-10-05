@@ -21,6 +21,13 @@ const orderSchema = new mongoose.Schema({
   totalQuantity: { type: Number, required: true, min: 1 },
   totalAmount: { type: Number, required: true, min: 0 },
   status: { type: String, enum: ['PENDING', 'COMPLETED', 'CANCELLED'], default: 'PENDING' },
+  invoice: {
+    url: { type: String, trim: true },
+    publicId: { type: String, trim: true },
+    fileName: { type: String, trim: true },
+    uploadedAt: { type: Date },
+    uploadedBy: { type: String, trim: true }
+  },
   cancelledAt: { type: Date },
   cancelledBy: { type: String, trim: true }
 }, { timestamps: true });

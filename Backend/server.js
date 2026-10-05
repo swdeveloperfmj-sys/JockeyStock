@@ -296,7 +296,10 @@ let legacyOrderMigration;
 const migrateLegacyOrders = async () => {
   if (legacyOrderMigration) return legacyOrderMigration;
   legacyOrderMigration = (async () => {
-    const orders = await Order.find({}).select('_id items.productId');
+    // Only migrate records created before orders stored their supplying
+    // location.  Re-running this after a server restart must never rewrite
+    // current orders (in particular, completed shipments).
+    const orders = await Order.find({ location: { $exists: false } }).select('_id items.productId');
     if (!orders.length) return;
     const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))))];
     const products = await Product.find({ _id: { $in: productIds } }).select('_id plant');
@@ -304,7 +307,7 @@ const migrateLegacyOrders = async () => {
     await Promise.all(orders.map((order) => {
       const plants = [...new Set(order.items.map((item) => plantByProduct.get(String(item.productId))).filter(Boolean))];
       return plants.length === 1
-        ? Order.updateOne({ _id: order._id }, { $set: { location: plants[0], status: 'PENDING' } })
+        ? Order.updateOne({ _id: order._id }, { $set: { location: plants[0] } })
         : null;
     }));
   })().catch((error) => {
@@ -346,6 +349,112 @@ app.get('/api/orders', async (req, res) => {
     }
   }
   res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200));
+});
+const invoiceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    callback(allowedTypes.includes(file.mimetype) ? null : new Error('Upload a PDF, JPG, PNG, or WebP invoice.'), allowedTypes.includes(file.mimetype));
+  }
+}).single('invoice');
+const receiveInvoice = (req, res, next) => invoiceUpload(req, res, (error) => {
+  if (!error) return next();
+  return res.status(400).json({ message: error.code === 'LIMIT_FILE_SIZE' ? 'Invoice file must be 10 MB or less.' : error.message });
+});
+
+const isSalesDepartment = (user) => ['SALES DEP', 'SALES_DEP'].includes(user?.role);
+const canAccessShipmentInvoice = (user, order) => (
+  (isSalesDepartment(user) && user.location === INVENTORY_LOCATION)
+  || (user.role === 'LOCATION_MANAGER' && user.location === order.location)
+);
+
+app.get('/api/shipments', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  const locationManager = user.role === 'LOCATION_MANAGER';
+  if (!locationManager && !(isSalesDepartment(user) && user.location === INVENTORY_LOCATION)) return res.status(403).json({ message: 'You are not allowed to view shipments.' });
+  const filter = locationManager ? { location: user.location, status: 'COMPLETED' } : { status: 'COMPLETED' };
+  res.json(await Order.find(filter).sort({ updatedAt: -1 }).limit(200));
+});
+
+app.post('/api/shipments/:id/invoice', receiveInvoice, async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!isSalesDepartment(user) || user.location !== INVENTORY_LOCATION) return res.status(403).json({ message: 'Only Head Office Sales Department users can upload invoices.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid shipment.' });
+  if (!req.file) return res.status(400).json({ message: 'Choose an invoice file to upload.' });
+  if (!cloudinaryIsConfigured()) return res.status(503).json({ message: 'Cloudinary is not configured. Add the Cloudinary credentials to Backend/.env.' });
+  try {
+    const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' });
+    if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
+    const previousInvoicePublicId = order.invoice?.publicId;
+    const uploaded = await uploadImageBuffer(req.file.buffer, { resource_type: 'raw', folder: 'jockey-stock/invoices', public_id: `invoice-${order.orderNumber}-${Date.now()}` });
+    order.invoice = { url: uploaded.secure_url, publicId: uploaded.public_id, fileName: req.file.originalname, uploadedAt: new Date(), uploadedBy: user.name };
+    await order.save();
+    if (previousInvoicePublicId) {
+      try { await cloudinary.uploader.destroy(previousInvoicePublicId, { resource_type: 'raw', invalidate: true }); }
+      catch (cleanupError) { console.error('Previous invoice cleanup failed:', cleanupError.message); }
+    }
+    publishOrderUpdate();
+    res.json(order);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to upload the invoice.' });
+  }
+});
+
+app.get('/api/shipments/:id/invoice/download', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid shipment.' });
+  try {
+    const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' }).select('invoice location');
+    if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
+    if (!canAccessShipmentInvoice(user, order)) return res.status(403).json({ message: 'You are not allowed to download this invoice.' });
+    if (!order.invoice?.url) return res.status(404).json({ message: 'No invoice has been uploaded for this shipment.' });
+    const invoiceResponse = await fetch(order.invoice.url);
+    if (!invoiceResponse.ok) throw new Error('The invoice file could not be downloaded.');
+    const fileName = String(order.invoice.fileName || 'invoice').replace(/[\\/:*?"<>|]/g, '_');
+    res.set({ 'Content-Type': invoiceResponse.headers.get('content-type') || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${fileName}"` });
+    res.send(Buffer.from(await invoiceResponse.arrayBuffer()));
+  } catch (error) {
+    res.status(502).json({ message: error.message || 'Unable to download the invoice.' });
+  }
+});
+
+// Cloudinary raw-file URLs are returned as attachments, which causes browsers
+// to download PDFs instead of rendering them in the shipment invoice preview.
+app.get('/api/shipments/:id/invoice/view', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid shipment.' });
+  try {
+    const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' }).select('invoice location');
+    if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
+    if (!canAccessShipmentInvoice(user, order)) return res.status(403).json({ message: 'You are not allowed to view this invoice.' });
+    if (!order.invoice?.url) return res.status(404).json({ message: 'No invoice has been uploaded for this shipment.' });
+    const invoiceResponse = await fetch(order.invoice.url);
+    if (!invoiceResponse.ok) throw new Error('The invoice file could not be loaded.');
+    const fileName = String(order.invoice.fileName || 'invoice').replace(/[\\/:*?"<>|]/g, '_');
+    const lowerFileName = fileName.toLowerCase();
+    const previewContentType = lowerFileName.endsWith('.pdf')
+      ? 'application/pdf'
+      : lowerFileName.endsWith('.png')
+        ? 'image/png'
+        : lowerFileName.endsWith('.webp')
+          ? 'image/webp'
+          : lowerFileName.endsWith('.jpg') || lowerFileName.endsWith('.jpeg')
+            ? 'image/jpeg'
+            : invoiceResponse.headers.get('content-type') || 'application/octet-stream';
+    res.set({
+      'Content-Type': previewContentType,
+      'Content-Disposition': `inline; filename="${fileName}"`,
+      'Cache-Control': 'private, no-store'
+    });
+    res.send(Buffer.from(await invoiceResponse.arrayBuffer()));
+  } catch (error) {
+    res.status(502).json({ message: error.message || 'Unable to view the invoice.' });
+  }
 });
 
 const isTodayInSriLanka = (date) => {
@@ -436,6 +545,33 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     res.status(error.message === 'This pending order is no longer available.' ? 409 : 400).json({ message: error.message || 'Unable to cancel the order.' });
   } finally {
     await dbSession.endSession();
+  }
+});
+
+// Marking an order ready to ship finalizes the location manager's review.  The
+// stock was already reserved when the order was created, so no stock movement
+// is needed here.
+app.post('/api/orders/:id/ready-to-ship', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can prepare orders for shipping.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
+
+  try {
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.id, location: user.location, status: 'PENDING' },
+      { $set: { status: 'COMPLETED' } },
+      { new: true }
+    );
+    if (!order) return res.status(409).json({ message: 'This pending order is no longer available.' });
+    publishOrderUpdate();
+    try {
+      const recipients = await User.find({ _id: order.salesRepId }).select('_id email contactNumber');
+      await notifyOrderRecipients(recipients, `Order ready to ship ${order.orderNumber}`, `${order.orderNumber} for ${order.customerName} is ready to ship.`);
+    } catch (notificationError) { console.error('Ready-to-ship notification failed:', notificationError.message); }
+    res.json(order);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to prepare the order for shipping.' });
   }
 });
 
@@ -603,6 +739,11 @@ app.patch('/api/orders/:id', async (req, res) => {
 
 const userFields = ['name', 'username', 'email', 'contactNumber', 'location', 'role'];
 const safeUser = (user) => ({ id: user._id, name: user.name, username: user.username, email: user.email, contactNumber: user.contactNumber, location: user.location, role: user.role });
+const duplicateUserMessage = (error) => {
+  if (error?.keyPattern?.username) return 'Username already exists.';
+  if (error?.keyPattern?.email) return 'Email already exists.';
+  return 'Username or email already exists.';
+};
 
 app.get('/api/users', async (_req, res) => {
   const users = await User.find().sort({ createdAt: -1 });
@@ -619,7 +760,7 @@ app.post('/api/users', async (req, res) => {
     const user = await User.create({ ...data, password: await bcrypt.hash(password, 12) });
     res.status(201).json(safeUser(user));
   } catch (error) {
-    res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Username or email already exists.' : error.message });
+    res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? duplicateUserMessage(error) : error.message });
   }
 });
 
@@ -634,7 +775,7 @@ app.patch('/api/users/:id', async (req, res) => {
     const user = await User.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
     if (!user) return res.status(404).json({ message: 'User not found.' });
     res.json(safeUser(user));
-  } catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? 'Username or email already exists.' : error.message }); }
+  } catch (error) { res.status(error.code === 11000 ? 409 : 400).json({ message: error.code === 11000 ? duplicateUserMessage(error) : error.message }); }
 });
 
 app.delete('/api/users/:id', async (req, res) => {

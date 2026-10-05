@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 import {
@@ -37,6 +37,7 @@ import {
   FiMapPin,
   FiCodesandbox,
   FiLayers,
+  FiTruck,
 } from "react-icons/fi";
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
@@ -1898,8 +1899,18 @@ function OrderCancellationConfirm({ order, actionLabel, busy, onClose, onConfirm
     </section>
   </div>;
 }
-function PendingOrdersPage({ refreshKey, onOrderChanged }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false);
+function ReadyToShipConfirm({ order, busy, onClose, onConfirm }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="ready-to-ship-title" onMouseDown={(event) => event.stopPropagation()}>
+      <p className="eyebrow">CONFIRM SHIPMENT</p>
+      <h2 id="ready-to-ship-title">Mark {order.orderNumber} ready to ship?</h2>
+      <p>This order will be removed from Pending Orders and added to the Shipment page.</p>
+      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Not now</button><button type="button" disabled={busy} onClick={onConfirm}>{busy ? "Preparing..." : "Confirm ready to ship"}</button></div>
+    </section>
+  </div>;
+}
+function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false), [readyTarget, setReadyTarget] = useState(null), [shippingId, setShippingId] = useState("");
   useEffect(() => {
     let active = true;
     const loadOrders = () => fetch(`${API_URL}/orders`)
@@ -1933,6 +1944,23 @@ function PendingOrdersPage({ refreshKey, onOrderChanged }) {
       setCancelling(false);
     }
   };
+  const markReadyToShip = async (order) => {
+    setShippingId(order._id);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/orders/${order._id}/ready-to-ship`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.filter((item) => item._id !== order._id));
+      setReadyTarget(null);
+      onOrderChanged();
+      onReadyToShip();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setShippingId("");
+    }
+  };
   return (
     <section className="pending-orders-page">
       <div className="page-title"><div><p className="eyebrow">SALES ORDERS</p><h1>Pending orders</h1><p className="page-description">Orders created by sales representatives for your location.</p></div></div>
@@ -1940,16 +1968,140 @@ function PendingOrdersPage({ refreshKey, onOrderChanged }) {
       <p className="pending-orders-count">{orders.length} pending {orders.length === 1 ? "order" : "orders"}</p>
       {orders.length ? <div className="pending-orders-list">
         {orders.map((order) => <article className="pending-order-card" key={order._id}>
-          <div className="pending-order-heading"><div><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{new Date(order.createdAt).toLocaleString()}</small></div><b>Pending</b></div>
-          <div className="pending-order-meta"><span><small>Sales rep</small>{order.salesRepName}</span><span><small>Phone</small>{order.customerPhone || "Not provided"}</span><span><small>Delivery address</small>{order.customerAddress}</span></div>
-          <div className="pending-order-items">{order.items.map((item) => <div key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} pcs</b></div>)}</div>
-          <div className="pending-order-total"><span>{order.totalQuantity} pieces</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-          <button type="button" className="cancel-pending-order" onClick={() => setCancelTarget(order)}>Cancel order</button>
+          <header className="pending-order-heading">
+            <div><span className="pending-order-number">{order.orderNumber}</span><h2>{order.customerName}</h2><small>Placed {new Date(order.createdAt).toLocaleString()}</small></div>
+            <b><i />Pending review</b>
+          </header>
+          <div className="pending-order-body">
+            <div className="pending-order-meta">
+              <span><small>Sales representative</small>{order.salesRepName}</span>
+              <span><small>Customer phone</small>{order.customerPhone || "Not provided"}</span>
+              <span className="pending-order-address"><small><FiMapPin aria-hidden="true" /> Delivery address</small>{order.customerAddress}</span>
+            </div>
+            <div className="pending-order-items">
+              <div className="pending-order-items-title"><span>Order items</span><small>{order.items.length} {order.items.length === 1 ? "product" : "products"}</small></div>
+              {order.items.map((item) => <div className="pending-order-item" key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} <small>pcs</small></b></div>)}
+            </div>
+            <footer className="pending-order-footer">
+              <div className="pending-order-total"><span>Total quantity <b>{order.totalQuantity} pieces</b></span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+              <div className="pending-order-actions">
+                <button type="button" className="cancel-pending-order" disabled={Boolean(shippingId)} onClick={() => setCancelTarget(order)}>Cancel order</button>
+              <button type="button" className="ready-to-ship-order" disabled={Boolean(shippingId)} onClick={() => setReadyTarget(order)}><FiTruck aria-hidden="true" />Ready to ship</button>
+              </div>
+            </footer>
+          </div>
         </article>)}
       </div> : <p className="empty-dashboard-state">No pending orders for this location.</p>}
       {cancelTarget && <OrderCancellationConfirm order={cancelTarget} actionLabel="Cancel order" busy={cancelling} onClose={() => setCancelTarget(null)} onConfirm={cancelOrder} />}
+      {readyTarget && <ReadyToShipConfirm order={readyTarget} busy={shippingId === readyTarget._id} onClose={() => setReadyTarget(null)} onConfirm={() => markReadyToShip(readyTarget)} />}
     </section>
   );
+}
+function ShipmentItemsModal({ order, onClose }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="shipment-items-modal" role="dialog" aria-modal="true" aria-labelledby="shipment-items-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-title"><div><p className="eyebrow">SHIPMENT ORDER ITEMS</p><h2 id="shipment-items-title">{order.orderNumber}</h2><p>{order.customerName} · {order.totalQuantity} pieces</p></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close"><FiX /></button></div>
+      <div className="shipment-items-table-wrap"><table className="shipment-items-table"><thead><tr><th>Product</th><th>Code</th><th>Qty.</th><th>Unit price</th><th>Total</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.productId}><td>{item.productName}</td><td>{item.productCode}</td><td>{item.quantity}</td><td>LKR {Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td><td>LKR {Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
+      <div className="shipment-items-modal-total"><span>Order total</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+    </section>
+  </div>;
+}
+function LocationShipmentTable({ orders, onOpenItems, onViewInvoice }) {
+  return <div className="shipment-table-wrap">
+    <table className="shipment-table">
+      <thead><tr><th>Order no.</th><th>Customer</th><th>Phone</th><th>Delivery address</th><th>Items</th><th>Total</th><th>Invoice</th><th>Status</th></tr></thead>
+      <tbody>{orders.map((order) => <tr key={order._id} onDoubleClick={() => onOpenItems(order)} title="Double-click or double-tap to view order items">
+        <td><strong>{order.orderNumber}</strong></td>
+        <td>{order.customerName}</td>
+        <td>{order.customerPhone || "Not provided"}</td>
+        <td>{order.customerAddress}</td>
+        <td>{order.totalQuantity} pcs</td>
+        <td><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></td>
+        <td>{order.invoice?.url ? <button type="button" className="invoice-view-button shipment-table-invoice" onClick={() => onViewInvoice(order)}>View invoice</button> : <span className="shipment-invoice-missing">Not uploaded</span>}</td>
+        <td>{order.invoice?.url ? <span className="shipment-ready-status"><FiTruck aria-hidden="true" /> Ready to ship</span> : <span className="shipment-waiting-status"><FiFileText aria-hidden="true" /> Waiting invoice</span>}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>;
+}
+function ShipmentsPage({ refreshKey, canUploadInvoice = false }) {
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
+  const lastShipmentTap = useRef({ orderId: "", time: 0 });
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/shipments`).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      if (active) { setOrders(data); setError(""); }
+    }).catch((requestError) => active && setError(requestError.message));
+    return () => { active = false; };
+  }, [refreshKey]);
+  const uploadInvoice = async (order, file) => {
+    if (!file) return;
+    const uploadStartedAt = Date.now();
+    setUploadingId(order._id); setError("");
+    try {
+      const formData = new FormData();
+      formData.append("invoice", file);
+      const response = await fetch(`${API_URL}/shipments/${order._id}/invoice`, { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.map((item) => item._id === data._id ? data : item));
+    } catch (requestError) { setError(requestError.message); } finally {
+      const remainingHighlightTime = Math.max(0, 1000 - (Date.now() - uploadStartedAt));
+      window.setTimeout(() => setUploadingId(""), remainingHighlightTime);
+    }
+  };
+  const viewInvoice = (order) => {
+    if (window.matchMedia("(max-width: 760px)").matches) {
+      window.location.assign(`${API_URL}/shipments/${order._id}/invoice/download`);
+      return;
+    }
+    setInvoicePreview({ ...order.invoice, viewUrl: `${API_URL}/shipments/${order._id}/invoice/view` });
+  };
+  const openShipmentOnDoubleTap = (event) => {
+    if (event.target.closest("button, label, a, input")) return;
+    const shipmentElement = event.target.closest(".shipment-card, .shipment-table tbody tr");
+    if (!shipmentElement) return;
+    const shipmentIndex = Array.from(shipmentElement.parentElement.children).indexOf(shipmentElement);
+    const order = orders[shipmentIndex];
+    if (!order) return;
+    const now = Date.now();
+    const previousTap = lastShipmentTap.current;
+    if (previousTap.orderId === order._id && now - previousTap.time <= 500) {
+      event.preventDefault();
+      lastShipmentTap.current = { orderId: "", time: 0 };
+      setSelectedShipment(order);
+      return;
+    }
+    lastShipmentTap.current = { orderId: order._id, time: now };
+  };
+  if (!canUploadInvoice) return <section className="shipments-page" onTouchEnd={openShipmentOnDoubleTap}>
+    <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">Orders that are prepared and ready for dispatch.</p></div></div>
+    {error && <p className="dashboard-error">{error}</p>}
+    <p className="pending-orders-count">{orders.length} {orders.length === 1 ? "shipment" : "shipments"}</p>
+    {orders.length ? <LocationShipmentTable orders={orders} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} /> : <p className="empty-dashboard-state">No shipments are available yet.</p>}
+    {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
+    {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
+  </section>;
+  return <section className="shipments-page" onTouchEnd={openShipmentOnDoubleTap}>
+    <div className="page-title"><div><p className="eyebrow">ORDER FULFILMENT</p><h1>Shipment</h1><p className="page-description">{canUploadInvoice ? "Upload an invoice for each shipment ready for dispatch." : "Orders that are prepared and ready for dispatch."}</p></div></div>
+    {error && <p className="dashboard-error">{error}</p>}
+    <p className="pending-orders-count">{orders.length} ready {orders.length === 1 ? "shipment" : "shipments"}</p>
+    {orders.length ? <div className="shipment-list">{orders.map((order) => <article className={`shipment-card ${!order.invoice?.url ? "is-awaiting-invoice" : ""} ${uploadingId === order._id ? "is-uploading" : ""}`} key={order._id} onDoubleClick={() => setSelectedShipment(order)} title="Double-click to view order items"><div className="shipment-card-main"><span>{order.orderNumber}</span><h2>{order.customerName}</h2><small>{order.customerPhone || "No phone number"}</small><p><FiMapPin aria-hidden="true" />{order.customerAddress}</p></div><div className="shipment-total"><small>Order total</small><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong><b><FiTruck aria-hidden="true" /> Ready to ship</b></div>{canUploadInvoice && <div className="shipment-invoice" onDoubleClick={(event) => event.stopPropagation()}>{order.invoice?.url ? <><div className="invoice-actions"><button type="button" className="invoice-view-button" onClick={() => viewInvoice(order)}>View invoice</button><label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Replacing..." : "Replace invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label></div><small>{order.invoice.fileName} · Uploaded by {order.invoice.uploadedBy}</small></> : <label className="invoice-upload-button"><FiUploadCloud aria-hidden="true" />{uploadingId === order._id ? "Uploading..." : "Upload invoice"}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={Boolean(uploadingId)} onChange={(event) => uploadInvoice(order, event.target.files?.[0])} /></label>}</div>}</article>)}</div> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
+    {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
+    {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
+  </section>;
+}
+function InvoicePreviewModal({ invoice, onClose }) {
+  const isPdf = /\.pdf(?:$|\?)/i.test(invoice.fileName || invoice.url);
+  const previewUrl = invoice.viewUrl || invoice.url;
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="invoice-preview-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-title"><div><p className="eyebrow">UPLOADED INVOICE</p><h2 id="invoice-preview-title">{invoice.fileName || "Invoice"}</h2></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close invoice"><FiX /></button></div>
+      <div className="invoice-preview-canvas">{isPdf ? <iframe src={previewUrl} title={invoice.fileName || "Invoice preview"} /> : <img src={previewUrl} alt={invoice.fileName || "Invoice"} />}</div>
+      <div className="invoice-preview-footer"><a href={previewUrl} target="_blank" rel="noreferrer">Open in new tab</a></div>
+    </section>
+  </div>;
 }
 function StockUpdatesHistoryPage() {
   const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false);
@@ -2092,7 +2244,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [m, setM] = useState(false),
     [headerHidden, setHeaderHidden] = useState(false),
     [confirm, setConfirm] = useState(false),
-    [view, setV] = useState("Dashboard"),
+    [view, setV] = useState(() => ["SALES DEP", "SALES_DEP"].includes(user.role) ? "Shipment" : "Dashboard"),
     [timeGreeting, setTimeGreeting] = useState(getTimeGreeting),
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
@@ -2116,7 +2268,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [notificationsOpen, setNotificationsOpen] = useState(false),
     [toastNotification, setToastNotification] = useState(null),
     admin = user.role === "SUPER_ADMIN",
-    locationManager = user.role === "LOCATION_MANAGER";
+    locationManager = user.role === "LOCATION_MANAGER",
+    salesDepartment = ["SALES DEP", "SALES_DEP"].includes(user.role);
   useEffect(() => {
     const updateGreeting = () => setTimeGreeting(getTimeGreeting());
     const timer = window.setInterval(updateGreeting, 60_000);
@@ -2183,6 +2336,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
         [FiBarChart2 , "Sales"],
+        [FiFileText, "Sales Order Series"],
         [FiUsers, "Users"],
         [FiMapPin, "Locations"],
         [FiUsers, "Roles"],
@@ -2194,7 +2348,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiFileText, "GRN"],
           [FiPlusCircle, "Create Order"],
           [FiLayers, "Pending Orders"],
+          [FiTruck, "Shipment"],
         ]
+      : salesDepartment
+        ? [[FiTruck, "Shipment"]]
       : [
           [FiBarChart2, "Dashboard"],
           [FiPlusCircle, "Create Order"],
@@ -2383,6 +2540,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             ? "SUPER ADMIN"
             : locationManager
               ? "LOCATION MANAGER"
+              : salesDepartment
+                ? "SALES DEPARTMENT"
               : "SALES REPRESENTATIVE"}
         </p>
         <h1>
@@ -2398,11 +2557,15 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Update factory stock."
               : view === "Pending Orders"
                 ? "Review pending sales orders."
+              : view === "Shipment"
+                ? "Orders prepared for dispatch."
               : view === "Create Order"
                 ? "Create sales order."
-                : view === "Sales"
-                  ? "Sales history."
-                  : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
+            : view === "Sales"
+              ? "Sales history."
+              : view === "Sales Order Series"
+                ? "Configure automatic sales order numbers."
+                : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
       <div className="header-actions">
@@ -2447,7 +2610,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     ) : view === "Stock Update" && locationManager ? (
       <StockUpdatePage />
     ) : view === "Pending Orders" && locationManager ? (
-      <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} />
+      <PendingOrdersPage refreshKey={orderRefreshKey} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onReadyToShip={() => setV("Shipment")} />
+    ) : view === "Shipment" && (locationManager || salesDepartment) ? (
+      <ShipmentsPage refreshKey={orderRefreshKey} canUploadInvoice={salesDepartment} />
     ) : view === "Create Order" && !admin ? (
       <SalesOrderPage
         editingOrder={orderToEdit}
@@ -2459,6 +2624,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       />
     ) : view === "Sales" && !locationManager ? (
       <SalesHistoryPage refreshKey={orderRefreshKey} isAdmin={admin} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
+    ) : view === "Sales Order Series" && admin ? (
+      <SalesOrderSeriesSettings />
     ) : (
       <>
         <section className="stats">
