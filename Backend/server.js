@@ -55,12 +55,17 @@ const connectDatabase = async () => {
   await migrateInventoryLocation();
   return connection;
 };
-const stockEventClients = new Set();
-const publishNotificationUpdate = () => {
-  for (const client of stockEventClients) client.write('event: notification-update\ndata: {}\n\n');
+// Keep the recipient alongside each live connection. Stock and order events are
+// shared, while notification events must reach only their intended recipients.
+const stockEventClients = new Map();
+const publishNotificationUpdate = (recipientIds) => {
+  const recipients = new Set(recipientIds.map(String));
+  for (const [client, recipientId] of stockEventClients) {
+    if (recipients.has(recipientId)) client.write('event: notification-update\ndata: {}\n\n');
+  }
 };
 const publishOrderUpdate = () => {
-  for (const client of stockEventClients) client.write('event: order-update\ndata: {}\n\n');
+  for (const client of stockEventClients.keys()) client.write('event: order-update\ndata: {}\n\n');
 };
 const publishStockUpdate = (products) => {
   const payload = JSON.stringify(products.map((product) => ({
@@ -68,7 +73,7 @@ const publishStockUpdate = (products) => {
     openingStock: product.openingStock,
     updatedAt: product.updatedAt
   })));
-  for (const client of stockEventClients) client.write(`event: stock-update\ndata: ${payload}\n\n`);
+  for (const client of stockEventClients.keys()) client.write(`event: stock-update\ndata: ${payload}\n\n`);
 };
 const sessionMaxAge = 5 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -320,7 +325,9 @@ const migrateLegacyOrders = async () => {
 
 // All signed-in sales screens receive stock changes immediately. The order API
 // still performs the final atomic stock check, which protects against races.
-app.get('/api/stock-events', (req, res) => {
+app.get('/api/stock-events', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   res.set({
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-transform',
@@ -328,7 +335,7 @@ app.get('/api/stock-events', (req, res) => {
   });
   res.flushHeaders();
   res.write(': connected\n\n');
-  stockEventClients.add(res);
+  stockEventClients.set(res, String(user._id));
   req.on('close', () => stockEventClients.delete(res));
 });
 
@@ -471,7 +478,7 @@ const notifyRecipients = async (recipients, { title, message, type = 'SYSTEM', e
   if (!uniqueRecipients.length) return;
   const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
   await Notification.insertMany(uniqueRecipients.map((recipient) => ({ recipientId: recipient._id, title, message, type, expiresAt })));
-  publishNotificationUpdate();
+  publishNotificationUpdate(uniqueRecipients.map((recipient) => recipient._id));
   void Promise.all(uniqueRecipients.map((recipient) => deliverMessage(recipient, title, message)));
 };
 const notifyOrderRecipients = (recipients, title, message) => notifyRecipients(recipients, { title, message, type: 'ORDER', expiresInDays: 2 });
