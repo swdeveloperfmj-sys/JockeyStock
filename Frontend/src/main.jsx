@@ -1479,10 +1479,14 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
   );
 }
 function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = false }) {
+  const todayDate = () => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  };
   const [orders, setOrders] = useState([]),
     [error, setError] = useState(""),
-    [startDate, setStartDate] = useState(""),
-    [endDate, setEndDate] = useState(""),
+    [startDate, setStartDate] = useState(() => isAdmin ? "" : todayDate()),
+    [endDate, setEndDate] = useState(() => isAdmin ? "" : todayDate()),
     [selectedOrder, setSelectedOrder] = useState(null),
     [reverseTarget, setReverseTarget] = useState(null),
     [reversing, setReversing] = useState(false);
