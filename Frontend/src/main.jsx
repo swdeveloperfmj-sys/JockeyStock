@@ -773,6 +773,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     [customers, setCustomers] = useState([]),
     [selectedCustomerId, setSelectedCustomerId] = useState(() => draft.selectedCustomerId || ""),
     [customerSearch, setCustomerSearch] = useState(""),
+    [customerDropdownOpen, setCustomerDropdownOpen] = useState(false),
     [selectedCustomerLocation, setSelectedCustomerLocation] = useState(() => draft.selectedCustomerLocation || "billing"),
     [cart, setCart] = useState(() => draft.cart || []),
     [customerName, setCustomerName] = useState(() => draft.customerName || ""),
@@ -794,6 +795,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     [showResetConfirm, setShowResetConfirm] = useState(false),
     [error, setError] = useState(""),
     [saving, setSaving] = useState(false);
+  const customerComboboxRef = useRef(null);
   useEffect(() => {
     sessionStorage.setItem(
       ORDER_DRAFT_KEY,
@@ -829,11 +831,6 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       .catch((requestError) => setError(requestError.message));
   }, []);
   useEffect(() => {
-    if (!selectedCustomerId || customerSearch) return;
-    const customer = customers.find((item) => item._id === selectedCustomerId);
-    if (customer) setCustomerSearch(`${customer.customerCode} — ${customer.customerName}`);
-  }, [customers, selectedCustomerId, customerSearch]);
-  useEffect(() => {
     if (!editingOrder || !products.length || !customers.length) return;
     setCart(editingOrder.items.map((item) => {
       const product = products.find((candidate) => candidate._id === item.productId);
@@ -845,11 +842,17 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     const linkedCustomer = customers.find((customer) => String(customer._id) === String(editingOrder.customerId))
       || customers.find((customer) => customer.customerName === editingOrder.customerName);
     setSelectedCustomerId(linkedCustomer?._id || "");
-    setCustomerSearch(linkedCustomer ? `${linkedCustomer.customerCode} — ${linkedCustomer.customerName}` : "");
     setSelectedCustomerLocation(editingOrder.customerBranchId || "billing");
     setCustomerLocked(Boolean(linkedCustomer));
     sessionStorage.removeItem(ORDER_DRAFT_KEY);
   }, [editingOrder, products, customers]);
+  useEffect(() => {
+    const closeCustomerDropdown = (event) => {
+      if (!customerComboboxRef.current?.contains(event.target)) setCustomerDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", closeCustomerDropdown);
+    return () => document.removeEventListener("mousedown", closeCustomerDropdown);
+  }, []);
   useEffect(() => {
     const events = new EventSource(`${API_URL}/stock-events`, {
       withCredentials: true,
@@ -1029,7 +1032,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
   const selectCustomer = (customerId) => {
     const customer = customers.find((item) => item._id === customerId);
     setSelectedCustomerId(customerId);
-    setCustomerSearch(customer ? `${customer.customerCode} — ${customer.customerName}` : "");
+    setCustomerSearch("");
+    setCustomerDropdownOpen(false);
     setSelectedCustomerLocation("billing");
     setCustomerName(customer?.customerName || "");
     setCustomerPhone(customer?.contact || "");
@@ -1060,6 +1064,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerAddress("");
     setSelectedCustomerId("");
     setCustomerSearch("");
+    setCustomerDropdownOpen(false);
     setSelectedCustomerLocation("billing");
     setCustomerLocked(false);
     setProductSearch("");
@@ -1100,6 +1105,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       setCustomerAddress("");
       setSelectedCustomerId("");
       setCustomerSearch("");
+      setCustomerDropdownOpen(false);
       setSelectedCustomerLocation("billing");
       setCustomerLocked(false);
       sessionStorage.removeItem(ORDER_DRAFT_KEY);
@@ -1146,23 +1152,48 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
             <div className="customer-fields">
               <label className="customer-address">
                 Select customer *
-                <div className="customer-combobox">
-                  <input
-                    type="search"
-                    value={customerSearch}
-                    onChange={(event) => {
-                      setCustomerSearch(event.target.value);
-                      setSelectedCustomerId("");
-                      setCustomerLocked(false);
-                    }}
-                    placeholder="Search customer name or code"
+                <div className="customer-combobox" ref={customerComboboxRef}>
+                  <button
+                    type="button"
+                    className="customer-combobox-trigger"
+                    onClick={() => setCustomerDropdownOpen((open) => !open)}
                     disabled={customerLocked}
-                    aria-label="Search customer by name or code"
-                  />
-                  <select value={selectedCustomerId} onChange={(event) => selectCustomer(event.target.value)} disabled={customerLocked} required>
-                    <option value="">{matchingCustomers.length ? "Choose customer" : "No matching customers"}</option>
-                    {matchingCustomers.map((customer) => <option key={customer._id} value={customer._id}>{customer.customerCode} — {customer.customerName}</option>)}
-                  </select>
+                    aria-haspopup="listbox"
+                    aria-expanded={customerDropdownOpen}
+                  >
+                    <span>{selectedCustomer ? `${selectedCustomer.customerCode} — ${selectedCustomer.customerName}` : "Choose customer"}</span>
+                    <FiChevronDown aria-hidden="true" />
+                  </button>
+                  {customerDropdownOpen && !customerLocked && (
+                    <div className="customer-combobox-menu">
+                      <div className="customer-combobox-search">
+                        <FiSearch aria-hidden="true" />
+                        <input
+                          type="search"
+                          value={customerSearch}
+                          onChange={(event) => setCustomerSearch(event.target.value)}
+                          placeholder="Search customer name or code"
+                          aria-label="Search customer name or code"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="customer-combobox-options" role="listbox">
+                        {matchingCustomers.length ? matchingCustomers.map((customer) => (
+                          <button
+                            type="button"
+                            key={customer._id}
+                            className={customer._id === selectedCustomerId ? "is-selected" : ""}
+                            onClick={() => selectCustomer(customer._id)}
+                            role="option"
+                            aria-selected={customer._id === selectedCustomerId}
+                          >
+                            <strong>{customer.customerCode}</strong>
+                            <span>{customer.customerName}</span>
+                          </button>
+                        )) : <p>No matching customers</p>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </label>
               {selectedCustomer && <>
