@@ -3747,6 +3747,15 @@ label {
   resize: vertical;
 }
 .customer-fields select { width: 100%; }
+.customer-combobox { position: relative; }
+.customer-combobox input { width: 100%; }
+.customer-search-results { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; left: 0; max-height: 250px; overflow-y: auto; padding: 6px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--surface); box-shadow: 0 12px 28px rgba(10, 25, 39, .16); }
+.customer-search-results button { display: grid; width: 100%; min-height: 0; margin: 0; padding: 10px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); text-align: left; }
+.customer-search-results button:hover,
+.customer-search-results button:focus-visible { background: color-mix(in srgb, var(--cream) 72%, var(--surface)); outline: none; }
+.customer-search-results button strong { color: var(--red); font-size: .73rem; }
+.customer-search-results button span { overflow: hidden; color: var(--ink); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.customer-search-results p { margin: 4px; padding: 9px; color: var(--muted); font-size: .78rem; }
 .selected-customer-summary { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .selected-customer-summary > span { padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: color-mix(in srgb, var(--surface) 88%, var(--cream)); color: var(--ink); font-size: .78rem; font-weight: 700; overflow-wrap: anywhere; }
 .selected-customer-summary small { display: block; margin-bottom: 4px; color: var(--muted); font-size: .61rem; font-weight: 800; letter-spacing: .045em; text-transform: uppercase; }
@@ -3763,6 +3772,10 @@ label {
   background: #151b26;
   color: #f5f7fb;
 }
+:root[data-theme="dark"] .customer-search-results { border-color: #465267; background: #0d121b; }
+:root[data-theme="dark"] .customer-search-results button span { color: #f5f7fb; }
+:root[data-theme="dark"] .customer-search-results button:hover,
+:root[data-theme="dark"] .customer-search-results button:focus-visible { background: #1b2535; }
 :root[data-theme="dark"] .sales-order-card .customer-fields input:disabled,
 :root[data-theme="dark"] .sales-order-card .customer-fields select:disabled,
 :root[data-theme="dark"] .sales-order-card .customer-fields textarea:disabled,

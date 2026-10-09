@@ -772,6 +772,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
   const [products, setProducts] = useState([]),
     [customers, setCustomers] = useState([]),
     [selectedCustomerId, setSelectedCustomerId] = useState(() => draft.selectedCustomerId || ""),
+    [customerSearch, setCustomerSearch] = useState(""),
+    [customerDropdownOpen, setCustomerDropdownOpen] = useState(false),
     [selectedCustomerLocation, setSelectedCustomerLocation] = useState(() => draft.selectedCustomerLocation || "billing"),
     [cart, setCart] = useState(() => draft.cart || []),
     [customerName, setCustomerName] = useState(() => draft.customerName || ""),
@@ -828,6 +830,11 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       .catch((requestError) => setError(requestError.message));
   }, []);
   useEffect(() => {
+    if (!selectedCustomerId || customerSearch) return;
+    const customer = customers.find((item) => item._id === selectedCustomerId);
+    if (customer) setCustomerSearch(`${customer.customerCode} — ${customer.customerName}`);
+  }, [customers, selectedCustomerId, customerSearch]);
+  useEffect(() => {
     if (!editingOrder || !products.length || !customers.length) return;
     setCart(editingOrder.items.map((item) => {
       const product = products.find((candidate) => candidate._id === item.productId);
@@ -839,6 +846,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     const linkedCustomer = customers.find((customer) => String(customer._id) === String(editingOrder.customerId))
       || customers.find((customer) => customer.customerName === editingOrder.customerName);
     setSelectedCustomerId(linkedCustomer?._id || "");
+    setCustomerSearch(linkedCustomer ? `${linkedCustomer.customerCode} — ${linkedCustomer.customerName}` : "");
     setSelectedCustomerLocation(editingOrder.customerBranchId || "billing");
     setCustomerLocked(Boolean(linkedCustomer));
     sessionStorage.removeItem(ORDER_DRAFT_KEY);
@@ -906,6 +914,13 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     0,
   );
   const selectedCustomer = customers.find((customer) => customer._id === selectedCustomerId);
+  const matchingCustomers = customers.filter((customer) =>
+    [customer.customerCode, customer.customerName]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(customerSearch.trim().toLowerCase()),
+  );
   const availableProducts = products.filter(
     (product) =>
       product.openingStock > 0 &&
@@ -1015,6 +1030,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
   const selectCustomer = (customerId) => {
     const customer = customers.find((item) => item._id === customerId);
     setSelectedCustomerId(customerId);
+    setCustomerSearch(customer ? `${customer.customerCode} — ${customer.customerName}` : "");
+    setCustomerDropdownOpen(false);
     setSelectedCustomerLocation("billing");
     setCustomerName(customer?.customerName || "");
     setCustomerPhone(customer?.contact || "");
@@ -1044,6 +1061,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerPhone("");
     setCustomerAddress("");
     setSelectedCustomerId("");
+    setCustomerSearch("");
+    setCustomerDropdownOpen(false);
     setSelectedCustomerLocation("billing");
     setCustomerLocked(false);
     setProductSearch("");
@@ -1083,6 +1102,8 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       setCustomerPhone("");
       setCustomerAddress("");
       setSelectedCustomerId("");
+      setCustomerSearch("");
+      setCustomerDropdownOpen(false);
       setSelectedCustomerLocation("billing");
       setCustomerLocked(false);
       sessionStorage.removeItem(ORDER_DRAFT_KEY);
@@ -1129,10 +1150,44 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
             <div className="customer-fields">
               <label className="customer-address">
                 Select customer *
-                <select value={selectedCustomerId} onChange={(event) => selectCustomer(event.target.value)} disabled={customerLocked} required>
-                  <option value="">Choose customer</option>
-                  {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.customerCode} — {customer.customerName}</option>)}
-                </select>
+                <div className="customer-combobox">
+                  <input
+                    type="search"
+                    value={customerSearch}
+                    onChange={(event) => {
+                      setCustomerSearch(event.target.value);
+                      setSelectedCustomerId("");
+                      setCustomerLocked(false);
+                      setCustomerDropdownOpen(true);
+                    }}
+                    onFocus={() => setCustomerDropdownOpen(true)}
+                    onBlur={() => window.setTimeout(() => setCustomerDropdownOpen(false), 150)}
+                    placeholder="Search customer name or code"
+                    disabled={customerLocked}
+                    aria-label="Search customer by name or code"
+                    aria-autocomplete="list"
+                    aria-expanded={customerDropdownOpen}
+                    aria-controls="customer-search-results"
+                    required
+                  />
+                  {customerDropdownOpen && !customerLocked && (
+                    <div id="customer-search-results" className="customer-search-results" role="listbox">
+                      {matchingCustomers.length ? matchingCustomers.map((customer) => (
+                        <button
+                          type="button"
+                          key={customer._id}
+                          role="option"
+                          aria-selected={customer._id === selectedCustomerId}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectCustomer(customer._id)}
+                        >
+                          <strong>{customer.customerCode}</strong>
+                          <span>{customer.customerName}</span>
+                        </button>
+                      )) : <p>No customers match “{customerSearch}”.</p>}
+                    </div>
+                  )}
+                </div>
               </label>
               {selectedCustomer && <>
                 <label>
