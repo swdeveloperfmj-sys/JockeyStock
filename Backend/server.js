@@ -919,6 +919,43 @@ app.patch('/api/products/:id/stock', async (req, res) => {
   }
   res.json(product);
 });
+app.post('/api/products/stock-import', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can import stock quantities.' });
+
+  const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ message: 'There are no stock rows to update.' });
+  if (rows.length > 5000) return res.status(400).json({ message: 'A maximum of 5,000 stock rows can be updated at once.' });
+
+  const codes = rows.map((row) => String(row.levelCode || '').trim());
+  const invalidRow = rows.find((row) => !/^\d{13}$/.test(String(row.levelCode || '').trim()) || !Number.isInteger(Number(row.quantity)) || Number(row.quantity) < 0);
+  if (invalidRow) return res.status(400).json({ message: `Row ${invalidRow.rowNumber || '?'} must have a 13-digit Level Code and a whole Qty of zero or more.` });
+  const duplicateCode = codes.find((code, index) => codes.indexOf(code) !== index);
+  if (duplicateCode) return res.status(400).json({ message: `Level Code ${duplicateCode} appears more than once in the upload.` });
+
+  const products = await Product.find({ productCode: { $in: codes } });
+  const productByCode = new Map(products.map((product) => [product.productCode, product]));
+  const missingCode = codes.find((code) => !productByCode.has(code));
+  if (missingCode) return res.status(400).json({ message: `Level Code ${missingCode} was not found in Product Master.` });
+
+  const updates = rows.map((row) => {
+    const product = productByCode.get(String(row.levelCode).trim());
+    return { product, quantity: Number(row.quantity) };
+  });
+  const changed = updates.filter(({ product, quantity }) => Number(product.openingStock || 0) !== quantity);
+  if (changed.length) {
+    await Product.bulkWrite(changed.map(({ product, quantity }) => ({ updateOne: { filter: { _id: product._id }, update: { $set: { openingStock: quantity } } } })));
+    const updatedProducts = await Product.find({ _id: { $in: changed.map(({ product }) => product._id) } });
+    const updatedById = new Map(updatedProducts.map((product) => [String(product._id), product]));
+    await StockUpdate.insertMany(changed.map(({ product, quantity }) => {
+      const updated = updatedById.get(String(product._id));
+      return { productId: updated._id, productCode: updated.productCode, productName: updated.productName, quantityAdded: quantity - Number(product.openingStock || 0), resultingStock: updated.openingStock, location: updated.plant, managerId: user._id, managerName: user.name };
+    }));
+    publishStockUpdate(updatedProducts);
+  }
+  res.json({ updated: changed.length, unchanged: rows.length - changed.length });
+});
 app.get('/api/stock-updates', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -1072,6 +1109,15 @@ app.patch('/api/customers/:id', async (req, res) => {
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to update the customer.' });
   }
+});
+app.delete('/api/customers/:id', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can delete customers.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid customer.' });
+  const customer = await Customer.findByIdAndDelete(req.params.id);
+  if (!customer) return res.status(404).json({ message: 'This customer no longer exists.' });
+  res.json({ message: `${customer.customerCode} — ${customer.customerName} was deleted.` });
 });
 app.get('/api/orders/number-series', async (req, res) => {
   const user = await currentUser(req);

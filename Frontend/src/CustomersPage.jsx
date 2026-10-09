@@ -15,6 +15,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [error, setError] = useState("");
@@ -128,6 +129,24 @@ export default function CustomersPage() {
     }
   };
 
+  const deleteCustomer = async (customer) => {
+    if (!window.confirm(`Delete ${customer.customerCode} — ${customer.customerName}? Existing orders will keep their saved customer details.`)) return;
+    setDeletingId(customer._id);
+    setError("");
+    setMessage("");
+    try {
+      const response = await apiFetch(`${API_URL}/customers/${customer._id}`, { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setCustomers((items) => items.filter((item) => item._id !== customer._id));
+      setMessage(data.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setDeletingId("");
+    }
+  };
+
   const filteredCustomers = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return customers;
@@ -170,7 +189,7 @@ export default function CustomersPage() {
     <section className="customer-directory">
       <div className="customer-directory-heading"><div><h2>Customers</h2><p>{filteredCustomers.length} records shown</p></div><label><FiSearch /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search code, name, VAT..." /></label></div>
       {filteredCustomers.length ? <div className="customer-grid">{filteredCustomers.map((customer) => <article className="customer-card" key={customer._id}>
-        <div className="customer-card-header"><div><span>{customer.customerCode}</span><h3>{customer.customerName}</h3></div><div className="customer-card-header-actions"><b>{Number(customer.discount || 0).toLocaleString()}% discount</b><button type="button" onClick={() => openCustomerEdit(customer)}><FiEdit2 /> Edit</button></div></div>
+        <div className="customer-card-header"><div><span>{customer.customerCode}</span><h3>{customer.customerName}</h3></div><div className="customer-card-header-actions"><b>{Number(customer.discount || 0).toLocaleString()}% discount</b><button type="button" onClick={() => openCustomerEdit(customer)} disabled={Boolean(deletingId)}><FiEdit2 /> Edit</button><button type="button" className="customer-delete-button" onClick={() => deleteCustomer(customer)} disabled={Boolean(deletingId)}>{deletingId === customer._id ? "Deleting..." : <><FiTrash2 /> Delete</>}</button></div></div>
         <div className="customer-card-details"><p><small>Billing address</small>{customer.billingAddress}</p><p><small>Contact</small>{customer.contact || "Not provided"}</p><p><small>VAT No.</small>{customer.vatNo}</p><p><small>Payment term</small>{customer.paymentTerm}</p></div>
         <div className="customer-card-branches"><strong><FiMapPin /> Branches ({customer.branches?.length || 0})</strong>{customer.branches?.length ? customer.branches.map((branch) => <div key={branch._id || branch.branchName}><span>{branch.branchName}</span><small>{[branch.address, branch.contact].filter(Boolean).join(" · ") || "No address or contact provided"}</small></div>) : <p>No branches added.</p>}</div>
       </article>)}</div> : <p className="empty-dashboard-state">No customers match this search.</p>}
