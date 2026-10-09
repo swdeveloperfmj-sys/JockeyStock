@@ -773,7 +773,6 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     [customers, setCustomers] = useState([]),
     [selectedCustomerId, setSelectedCustomerId] = useState(() => draft.selectedCustomerId || ""),
     [customerSearch, setCustomerSearch] = useState(""),
-    [customerDropdownOpen, setCustomerDropdownOpen] = useState(false),
     [selectedCustomerLocation, setSelectedCustomerLocation] = useState(() => draft.selectedCustomerLocation || "billing"),
     [cart, setCart] = useState(() => draft.cart || []),
     [customerName, setCustomerName] = useState(() => draft.customerName || ""),
@@ -1031,7 +1030,6 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     const customer = customers.find((item) => item._id === customerId);
     setSelectedCustomerId(customerId);
     setCustomerSearch(customer ? `${customer.customerCode} — ${customer.customerName}` : "");
-    setCustomerDropdownOpen(false);
     setSelectedCustomerLocation("billing");
     setCustomerName(customer?.customerName || "");
     setCustomerPhone(customer?.contact || "");
@@ -1062,7 +1060,6 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setCustomerAddress("");
     setSelectedCustomerId("");
     setCustomerSearch("");
-    setCustomerDropdownOpen(false);
     setSelectedCustomerLocation("billing");
     setCustomerLocked(false);
     setProductSearch("");
@@ -1103,7 +1100,6 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       setCustomerAddress("");
       setSelectedCustomerId("");
       setCustomerSearch("");
-      setCustomerDropdownOpen(false);
       setSelectedCustomerLocation("billing");
       setCustomerLocked(false);
       sessionStorage.removeItem(ORDER_DRAFT_KEY);
@@ -1158,35 +1154,15 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
                       setCustomerSearch(event.target.value);
                       setSelectedCustomerId("");
                       setCustomerLocked(false);
-                      setCustomerDropdownOpen(true);
                     }}
-                    onFocus={() => setCustomerDropdownOpen(true)}
-                    onBlur={() => window.setTimeout(() => setCustomerDropdownOpen(false), 150)}
                     placeholder="Search customer name or code"
                     disabled={customerLocked}
                     aria-label="Search customer by name or code"
-                    aria-autocomplete="list"
-                    aria-expanded={customerDropdownOpen}
-                    aria-controls="customer-search-results"
-                    required
                   />
-                  {customerDropdownOpen && !customerLocked && (
-                    <div id="customer-search-results" className="customer-search-results" role="listbox">
-                      {matchingCustomers.length ? matchingCustomers.map((customer) => (
-                        <button
-                          type="button"
-                          key={customer._id}
-                          role="option"
-                          aria-selected={customer._id === selectedCustomerId}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => selectCustomer(customer._id)}
-                        >
-                          <strong>{customer.customerCode}</strong>
-                          <span>{customer.customerName}</span>
-                        </button>
-                      )) : <p>No customers match “{customerSearch}”.</p>}
-                    </div>
-                  )}
+                  <select value={selectedCustomerId} onChange={(event) => selectCustomer(event.target.value)} disabled={customerLocked} required>
+                    <option value="">{matchingCustomers.length ? "Choose customer" : "No matching customers"}</option>
+                    {matchingCustomers.map((customer) => <option key={customer._id} value={customer._id}>{customer.customerCode} — {customer.customerName}</option>)}
+                  </select>
                 </div>
               </label>
               {selectedCustomer && <>
