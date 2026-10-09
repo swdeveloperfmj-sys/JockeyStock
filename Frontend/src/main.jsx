@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import * as XLSX from "xlsx";
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 import {
   MapContainer as LeafletMapContainer,
@@ -2207,7 +2208,7 @@ function InvoicePreviewModal({ invoice, onClose }) {
   </div>;
 }
 function StockUpdatesHistoryPage() {
-  const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false);
+  const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false), [stockImport, setStockImport] = useState(null), [stockImporting, setStockImporting] = useState(false), [stockImportMessage, setStockImportMessage] = useState("");
   useEffect(() => {
     let active = true;
     const load = () => Promise.all([fetch(`${API_URL}/products`), fetch(`${API_URL}/stock-updates`)])
@@ -2245,9 +2246,74 @@ function StockUpdatesHistoryPage() {
       setStockTarget(null); setStockQuantity(""); setError("");
     } catch (requestError) { setError(requestError.message); } finally { setStockSaving(false); }
   };
+  const readStockSheet = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setError(""); setStockImportMessage(""); setStockImporting(true);
+    try {
+      if (file.size > 10 * 1024 * 1024) throw new Error("The spreadsheet must be smaller than 10 MB.");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", raw: false });
+      let data, headerRowIndex = -1, levelCodeColumn = -1, quantityColumn = -1;
+      for (const sheetName of workbook.SheetNames) {
+        const candidate = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "", raw: false });
+        const candidateHeaderRow = candidate.findIndex((row) => {
+          const headers = row.map(normalizeSheetHeader);
+          return headers.includes("levelcode") && headers.some((header) => header === "qty" || header === "quantity");
+        });
+        if (candidateHeaderRow < 0) continue;
+        const headers = candidate[candidateHeaderRow].map(normalizeSheetHeader);
+        data = candidate; headerRowIndex = candidateHeaderRow;
+        levelCodeColumn = headers.findIndex((header) => header === "levelcode");
+        quantityColumn = headers.findIndex((header) => header === "qty" || header === "quantity");
+        break;
+      }
+      if (!data) throw new Error("No worksheet containing Level Code and Qty columns was found.");
+      const knownProducts = new Map(products.map((product) => [String(product.productCode || product.sku || "").trim(), product]));
+      const seen = new Set();
+      const rows = data.slice(headerRowIndex + 1).map((values, index) => {
+        const levelCode = String(values[levelCodeColumn] ?? "").trim();
+        const quantityText = String(values[quantityColumn] ?? "").replace(/,/g, "").trim();
+        if (!levelCode && !quantityText) return null;
+        const quantity = Number(quantityText);
+        const issues = [];
+        if (!/^\d{13}$/.test(levelCode)) issues.push("Level Code must be 13 digits.");
+        if (!Number.isInteger(quantity) || quantity < 0) issues.push("Qty must be a whole number of zero or more.");
+        if (seen.has(levelCode)) issues.push("Duplicate Level Code in this sheet.");
+        else if (levelCode) seen.add(levelCode);
+        const product = knownProducts.get(levelCode);
+        if (levelCode && !product) issues.push("Product not found.");
+        return { rowNumber: headerRowIndex + index + 2, levelCode, quantity, product, issues };
+      }).filter(Boolean);
+      if (!rows.length) throw new Error("No stock rows were found below the headers.");
+      if (rows.length > 5000) throw new Error("A maximum of 5,000 rows can be imported at once.");
+      setStockImport({ fileName: file.name, rows });
+    } catch (importError) { setError(importError.message); } finally { setStockImporting(false); }
+  };
+  const confirmStockImport = async () => {
+    if (!stockImport) return;
+    if (stockImport.rows.some((row) => row.issues.length)) {
+      setError("Fix the rows marked in red before confirming the stock update.");
+      return;
+    }
+    setStockImporting(true); setError(""); setStockImportMessage("");
+    try {
+      const response = await fetch(`${API_URL}/products/stock-import`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows: stockImport.rows.map(({ levelCode, quantity, rowNumber }) => ({ levelCode, quantity, rowNumber })) }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Unable to update stock.");
+      setProducts((current) => current.map((product) => { const row = stockImport.rows.find((item) => item.product?._id === product._id); return row ? { ...product, openingStock: row.quantity } : product; }));
+      setStockImportMessage(`${result.updated} product${result.updated === 1 ? "" : "s"} updated. ${result.unchanged} unchanged.`); setStockImport(null);
+    } catch (importError) { setError(importError.message); } finally { setStockImporting(false); }
+  };
   return <section className="stock-updates-history-page">
     <div className="page-title"><div><p className="eyebrow">INVENTORY AUDIT</p><h1>Available stock</h1><p className="page-description">Products with stock currently available, including the latest Location Manager update where recorded.</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
+    <section className="stock-sheet-import" aria-labelledby="stock-sheet-import-title">
+      <div><p className="eyebrow">BULK STOCK UPDATE</p><h2 id="stock-sheet-import-title">Upload stock sheet</h2><p>Upload an <b>.xls</b> or <b>.xlsx</b> file. The columns <b>Level Code</b> and <b>Qty</b> are detected automatically; Qty replaces the current stock quantity.</p></div>
+      <label className="stock-sheet-upload"><FiUploadCloud aria-hidden="true" />{stockImporting ? "Reading..." : "Choose spreadsheet"}<input type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={stockImporting} onChange={readStockSheet} /></label>
+    </section>
+    {stockImportMessage && <p className="stock-update-success">{stockImportMessage}</p>}
+    {stockImport && <section className="stock-sheet-preview"><div className="stock-sheet-preview-heading"><div><p className="eyebrow">UPLOAD PREVIEW</p><h2>{stockImport.fileName}</h2><p>{stockImport.rows.length} rows · {stockImport.rows.filter((row) => row.issues.length).length} need attention</p></div><button type="button" className="close-modal" onClick={() => setStockImport(null)} aria-label="Close preview"><FiX /></button></div><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Sheet row</th><th>Level Code</th><th>Product</th><th>Current Qty</th><th>New Qty</th><th>Status</th></tr></thead><tbody>{stockImport.rows.map((row) => <tr key={row.rowNumber} className={row.issues.length ? "stock-sheet-row-error" : ""}><td>{row.rowNumber}</td><td>{row.levelCode || "—"}</td><td>{row.product?.productName || "—"}</td><td>{row.product ? Number(row.product.openingStock || 0).toLocaleString() : "—"}</td><td>{Number.isFinite(row.quantity) ? row.quantity.toLocaleString() : "—"}</td><td>{row.issues.length ? row.issues.join(" ") : row.product.openingStock === row.quantity ? "No change" : "Ready"}</td></tr>)}</tbody></table></div><footer className="stock-sheet-preview-footer"><span>{stockImport.rows.some((row) => row.issues.length) ? "Fix the red rows before confirming." : `${stockImport.rows.filter((row) => row.product.openingStock !== row.quantity).length} quantities will be updated.`}</span><button type="button" className={stockImport.rows.some((row) => row.issues.length) ? "is-disabled" : ""} disabled={stockImporting || stockImport.rows.some((row) => row.issues.length)} title={stockImport.rows.some((row) => row.issues.length) ? "Fix the red rows in the preview first." : "Update the displayed stock quantities."} onClick={confirmStockImport}>{stockImporting ? "Updating..." : "Confirm stock update"}</button></footer></section>}
     <div className="stock-update-filters stock-update-detail-filters"><input type="search" value={filters.productCode} onChange={(event) => setFilters((current) => ({ ...current, productCode: event.target.value }))} placeholder="Product code" /><input type="search" value={filters.productName} onChange={(event) => setFilters((current) => ({ ...current, productName: event.target.value }))} placeholder="Product name" /><input type="search" value={filters.style} onChange={(event) => setFilters((current) => ({ ...current, style: event.target.value }))} placeholder="Style" /><select value={filters.colour} onChange={(event) => setFilters((current) => ({ ...current, colour: event.target.value }))}><option value="">All colours</option>{colours.map((colour) => <option key={colour} value={colour}>{colour}</option>)}</select><select value={filters.size} onChange={(event) => setFilters((current) => ({ ...current, size: event.target.value }))}><option value="">All sizes</option>{sizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></div>
     <p className="stock-update-history-count">{availableProducts.length} products with stock available</p>
     {availableProducts.length ? <div className="product-list-card stock-update-product-list"><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Image</th><th>Product code</th><th>Product name</th><th>Style</th><th>Colour</th><th>Size</th><th>Category</th><th>Available stock</th><th>Last quantity added</th><th>Updated by</th><th>Updated time</th></tr></thead><tbody>{availableProducts.map((product) => {

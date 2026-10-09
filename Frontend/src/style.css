@@ -1240,6 +1240,25 @@ header h1 {
   margin: 0 0 14px;
   font-size: 0.86rem;
 }
+.stock-sheet-import,
+.stock-sheet-preview {
+  margin: 0 0 18px;
+  padding: 18px;
+  border: 1px solid rgba(234, 90, 53, .3);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--red));
+}
+.stock-sheet-import { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.stock-sheet-import h2, .stock-sheet-preview h2 { margin: 3px 0 5px; font-size: 1rem; }
+.stock-sheet-import p { margin: 0; color: var(--muted); font-size: .82rem; max-width: 700px; }
+.stock-sheet-upload { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; background: var(--red); color: #fff; font-weight: 700; cursor: pointer; }
+.stock-sheet-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.stock-sheet-preview-heading, .stock-sheet-preview-footer { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.stock-sheet-preview-heading p { margin: 0; color: var(--muted); font-size: .8rem; }
+.stock-sheet-preview-footer { margin-top: 14px; color: var(--muted); font-size: .82rem; }
+.stock-sheet-preview-footer button { margin: 0; width: auto; }
+.stock-sheet-row-error { background: color-mix(in srgb, #d82b2b 10%, transparent); }
+@media (max-width: 680px) { .stock-sheet-import, .stock-sheet-preview-heading, .stock-sheet-preview-footer { align-items: stretch; flex-direction: column; } .stock-sheet-upload, .stock-sheet-preview-footer button { justify-content: center; width: 100%; } }
 .stock-update-history-section {
   margin-top: 42px;
 }
@@ -6794,6 +6813,7 @@ label {
 .customer-card-header-actions { display: flex; align-items: center; gap: 8px; }
 .customer-card-header-actions > b { padding: 5px 8px; border-radius: 999px; background: rgba(45, 157, 120, .12); color: #218463; font-size: .64rem; text-transform: uppercase; white-space: nowrap; }
 .customer-card-header-actions > button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; width: auto; min-height: 30px; margin: 0; padding: 5px 9px; border: 1px solid rgba(255, 107, 53, .3); background: rgba(255, 107, 53, .08) !important; color: var(--red) !important; box-shadow: none !important; font-size: .68rem; }
+.customer-card-header-actions > .customer-delete-button { border-color: rgba(211, 63, 63, .35); background: rgba(211, 63, 63, .09) !important; color: #c93636 !important; }
 .customer-card-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; padding: 17px 18px; }
 .customer-card-details p { margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
 .customer-card-details small { display: block; margin-bottom: 4px; color: var(--muted); font-size: .62rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
