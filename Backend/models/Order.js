@@ -18,7 +18,7 @@ const orderSchema = new mongoose.Schema({
   customerCode: { type: String, trim: true },
   customerBranchId: { type: String, trim: true, default: 'billing' },
   customerBranchName: { type: String, trim: true, default: 'Billing address' },
-  customerVatNo: { type: String, trim: true },
+  customerTinNo: { type: String, trim: true },
   customerDiscount: { type: Number, min: 0, max: 100, default: 0 },
   customerPaymentTerm: { type: String, trim: true },
   salesRepId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -27,7 +27,15 @@ const orderSchema = new mongoose.Schema({
   items: { type: [orderItemSchema], validate: [(items) => items.length > 0, 'At least one item is required.'] },
   totalQuantity: { type: Number, required: true, min: 1 },
   totalAmount: { type: Number, required: true, min: 0 },
-  status: { type: String, enum: ['PENDING', 'COMPLETED', 'CANCELLED'], default: 'PENDING' },
+  status: { type: String, enum: ['PENDING', 'HELD', 'COMPLETED', 'CANCELLED'], default: 'PENDING' },
+  hold: {
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    productCode: { type: String, trim: true },
+    productName: { type: String, trim: true },
+    reason: { type: String, trim: true, maxlength: 500 },
+    heldAt: { type: Date },
+    heldBy: { type: String, trim: true }
+  },
   invoice: {
     url: { type: String, trim: true },
     publicId: { type: String, trim: true },

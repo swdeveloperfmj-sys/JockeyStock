@@ -1251,6 +1251,9 @@ header h1 {
 .stock-sheet-import { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .stock-sheet-import h2, .stock-sheet-preview h2 { margin: 3px 0 5px; font-size: 1rem; }
 .stock-sheet-import p { margin: 0; color: var(--muted); font-size: .82rem; max-width: 700px; }
+.stock-sheet-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+.reset-all-stock { padding: 10px 14px; border: 1px solid var(--red); border-radius: 8px; background: var(--surface); color: var(--red); font-weight: 700; cursor: pointer; }
+.reset-all-stock:disabled { cursor: wait; opacity: .65; }
 .stock-sheet-upload { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; background: var(--red); color: #fff; font-weight: 700; cursor: pointer; }
 .stock-sheet-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .stock-sheet-preview-heading, .stock-sheet-preview-footer { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
@@ -1258,7 +1261,7 @@ header h1 {
 .stock-sheet-preview-footer { margin-top: 14px; color: var(--muted); font-size: .82rem; }
 .stock-sheet-preview-footer button { margin: 0; width: auto; }
 .stock-sheet-row-error { background: color-mix(in srgb, #d82b2b 10%, transparent); }
-@media (max-width: 680px) { .stock-sheet-import, .stock-sheet-preview-heading, .stock-sheet-preview-footer { align-items: stretch; flex-direction: column; } .stock-sheet-upload, .stock-sheet-preview-footer button { justify-content: center; width: 100%; } }
+@media (max-width: 680px) { .stock-sheet-import, .stock-sheet-preview-heading, .stock-sheet-preview-footer, .stock-sheet-actions { align-items: stretch; flex-direction: column; } .stock-sheet-upload, .reset-all-stock, .stock-sheet-preview-footer button { justify-content: center; width: 100%; } }
 .stock-update-history-section {
   margin-top: 42px;
 }
@@ -3345,6 +3348,9 @@ label {
 .pending-orders-count { margin: 0 0 16px; color: var(--muted); font-size: .82rem; }
 .pending-orders-list { display: grid; gap: 16px; }
 .pending-order-card { overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 8px 24px rgba(27, 38, 49, .05); }
+.pending-order-card.is-held { border-color: rgba(238, 151, 47, .62); }
+.pending-order-card.is-held .pending-order-heading { background: linear-gradient(105deg, rgba(238, 151, 47, .13), transparent 58%); }
+.pending-order-card.is-held .pending-order-heading > b { background: rgba(238, 151, 47, .16); color: #b36a12; }
 .pending-order-heading { display: flex; justify-content: space-between; gap: 18px; padding: 16px 20px; border-bottom: 1px solid var(--border); background: linear-gradient(105deg, rgba(255, 107, 53, .07), transparent 58%); }
 .pending-order-number { color: var(--red); font-size: .72rem; font-weight: 800; letter-spacing: .075em; }
 .pending-order-heading h2 { margin: 5px 0 4px; font-size: 1.1rem; }
@@ -3357,6 +3363,7 @@ label {
 .pending-order-meta > span { font-size: .82rem; font-weight: 600; }
 .pending-order-meta small { display: flex; align-items: center; gap: 4px; margin-bottom: 5px; color: var(--muted); font-size: .64rem; font-weight: 700; letter-spacing: .055em; text-transform: uppercase; }
 .pending-order-address small svg { width: 12px; height: 12px; }
+.pending-order-hold-note { padding: 10px 12px; border-left: 3px solid #d88927; border-radius: 6px; background: rgba(238, 151, 47, .1); }
 .pending-order-items { display: grid; gap: 7px; padding: 15px 20px; border-left: 1px solid var(--border); background: rgba(32, 43, 54, .018); }
 .pending-order-items-title, .pending-order-item { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
 .pending-order-items-title { margin-bottom: 1px; color: var(--muted); font-size: .69rem; font-weight: 800; letter-spacing: .055em; text-transform: uppercase; }
@@ -3370,8 +3377,21 @@ label {
 .pending-order-total > span { color: var(--muted); font-size: .72rem; }
 .pending-order-total > span b { display: block; margin-top: 3px; color: var(--text); font-size: .88rem; }
 .pending-order-total strong { color: var(--red); font-size: 1rem; }
-.pending-order-actions { display: flex; gap: 9px; }
-.pending-order-actions button { flex: 1; white-space: nowrap; }
+.pending-order-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.pending-order-actions button { flex: 1 1 110px; white-space: nowrap; }
+.hold-pending-order { width: auto; min-height: 38px; margin: 0; padding: 8px 12px; border: 1px solid #d88927; background: transparent !important; color: #b36a12 !important; box-shadow: none !important; }
+.resume-held-order { width: auto; min-height: 38px; margin: 0; padding: 8px 12px; background: #d88927 !important; color: #fff !important; }
+.order-hold-modal { display: grid; gap: 14px; text-align: left; }
+.order-hold-modal .eyebrow, .order-hold-modal h2, .order-hold-modal > p { text-align: center; }
+.order-hold-modal > p, .order-hold-modal > h2 { margin: 0; }
+.order-hold-modal label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 700; }
+.order-hold-modal select, .order-hold-modal textarea { width: 100%; margin: 0; }
+.sales-order-status { display: inline-flex; width: fit-content; margin-top: 7px; padding: 4px 7px; border-radius: 999px; background: rgba(255, 107, 53, .1); color: var(--red); font-size: .62rem; text-transform: uppercase; }
+.sales-order-status.is-held { background: rgba(238, 151, 47, .15); color: #b36a12; }
+.sales-order-hold-reason { margin-top: 5px; color: #b36a12 !important; }
+.order-detail-hold { display: grid; gap: 4px; margin: 0 0 18px; padding: 12px 14px; border-left: 3px solid #d88927; border-radius: 7px; background: rgba(238, 151, 47, .1); }
+.order-detail-hold strong { color: #b36a12; }
+.order-detail-hold span, .order-detail-hold p { margin: 0; font-size: .78rem; }
 .cancel-pending-order,
 .reverse-order-button {
   width: auto;

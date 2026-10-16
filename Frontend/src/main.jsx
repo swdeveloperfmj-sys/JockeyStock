@@ -1214,7 +1214,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
                 </label>
                 <div className="selected-customer-summary">
                   <span><small>Customer code</small>{selectedCustomer.customerCode}</span>
-                  <span><small>VAT No.</small>{selectedCustomer.vatNo}</span>
+                  <span><small>TIN No.</small>{selectedCustomer.tinNo || selectedCustomer.vatNo}</span>
                   <span><small>Discount</small>{Number(selectedCustomer.discount || 0).toLocaleString()}%</span>
                   <span><small>Payment term</small>{selectedCustomer.paymentTerm}</span>
                 </div>
@@ -1670,6 +1670,8 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                   {order.customerPhone ? ` · ${order.customerPhone}` : ""}
                 </span>
                 <small>{new Date(order.createdAt).toLocaleString()}</small>
+                <b className={`sales-order-status ${order.status === "HELD" ? "is-held" : ""}`}>{order.status === "HELD" ? "On hold" : order.status}</b>
+                {order.status === "HELD" && <small className="sales-order-hold-reason">{order.hold?.productCode}: {order.hold?.reason}</small>}
               </div>
               <div>
                 <span>{order.totalQuantity} items</span>
@@ -1679,7 +1681,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                     minimumFractionDigits: 2,
                   })}
                 </strong>
-                {!isAdmin && isToday(order.createdAt) && (
+                {!isAdmin && order.status === "PENDING" && isToday(order.createdAt) && (
                   <div className="sales-order-actions">
                     <button type="button" className="edit-sales-order" onClick={(event) => { event.stopPropagation(); onEditOrder(order); }} onKeyDown={(event) => event.stopPropagation()}>Edit order</button>
                     <button type="button" className="cancel-sales-order" onClick={(event) => { event.stopPropagation(); setReverseTarget(order); }} onKeyDown={(event) => event.stopPropagation()}>Cancel order</button>
@@ -1740,6 +1742,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                 </strong>
               </div>
             </div>
+            {selectedOrder.status === "HELD" && <div className="order-detail-hold"><strong>Order on hold</strong><span>{selectedOrder.hold?.productCode} — {selectedOrder.hold?.productName}</span><p>{selectedOrder.hold?.reason}</p></div>}
             <div className="sales-cart">
               <table className="order-items-table">
                 <thead>
@@ -2023,8 +2026,26 @@ function ReadyToShipConfirm({ order, busy, onClose, onConfirm }) {
     </section>
   </div>;
 }
+function OrderHoldModal({ order, busy, onClose, onConfirm }) {
+  const [productId, setProductId] = useState(order.items[0]?.productId || "");
+  const [reason, setReason] = useState("");
+  const submit = (event) => {
+    event.preventDefault();
+    onConfirm({ productId, reason });
+  };
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <form className="confirm-modal order-hold-modal" role="dialog" aria-modal="true" aria-labelledby="order-hold-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
+      <p className="eyebrow">PLACE ORDER ON HOLD</p>
+      <h2 id="order-hold-title">Hold {order.orderNumber}</h2>
+      <p>The stock will remain reserved until this order is resumed or cancelled.</p>
+      <label>Affected item<select value={productId} onChange={(event) => setProductId(event.target.value)} required>{order.items.map((item) => <option key={item.productId} value={item.productId}>{item.productCode} — {item.productName} ({item.quantity} pcs)</option>)}</select></label>
+      <label>Reason<textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} minLength="3" maxLength="500" rows="4" placeholder="e.g. Damaged items found during packing" required /></label>
+      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Keep pending</button><button type="submit" disabled={busy || reason.trim().length < 3}>{busy ? "Placing on hold..." : "Place on hold"}</button></div>
+    </form>
+  </div>;
+}
 function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false), [readyTarget, setReadyTarget] = useState(null), [shippingId, setShippingId] = useState("");
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false), [readyTarget, setReadyTarget] = useState(null), [shippingId, setShippingId] = useState(""), [holdTarget, setHoldTarget] = useState(null), [holdingId, setHoldingId] = useState(""), [resumingId, setResumingId] = useState("");
   useEffect(() => {
     let active = true;
     const loadOrders = () => fetch(`${API_URL}/orders`)
@@ -2075,22 +2096,46 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
       setShippingId("");
     }
   };
+  const holdOrder = async ({ productId, reason }) => {
+    if (!holdTarget) return;
+    setHoldingId(holdTarget._id); setError("");
+    try {
+      const response = await fetch(`${API_URL}/orders/${holdTarget._id}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId, reason }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.map((order) => order._id === data._id ? data : order));
+      setHoldTarget(null);
+      onOrderChanged();
+    } catch (requestError) { setError(requestError.message); } finally { setHoldingId(""); }
+  };
+  const resumeOrder = async (order) => {
+    setResumingId(order._id); setError("");
+    try {
+      const response = await fetch(`${API_URL}/orders/${order._id}/resume`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+      setOrders((items) => items.map((item) => item._id === data._id ? data : item));
+      onOrderChanged();
+    } catch (requestError) { setError(requestError.message); } finally { setResumingId(""); }
+  };
+  const actionBusy = Boolean(shippingId || holdingId || resumingId || cancelling);
   return (
     <section className="pending-orders-page">
       <div className="page-title"><div><p className="eyebrow">SALES ORDERS</p><h1>Pending orders</h1><p className="page-description">Orders created by sales representatives for your location.</p></div></div>
       {error && <p className="dashboard-error">{error}</p>}
-      <p className="pending-orders-count">{orders.length} pending {orders.length === 1 ? "order" : "orders"}</p>
+      <p className="pending-orders-count">{orders.filter((order) => order.status === "PENDING").length} pending · {orders.filter((order) => order.status === "HELD").length} on hold</p>
       {orders.length ? <div className="pending-orders-list">
-        {orders.map((order) => <article className="pending-order-card" key={order._id}>
+        {orders.map((order) => <article className={`pending-order-card ${order.status === "HELD" ? "is-held" : ""}`} key={order._id}>
           <header className="pending-order-heading">
             <div><span className="pending-order-number">{order.orderNumber}</span><h2>{order.customerName}</h2><small>Placed {new Date(order.createdAt).toLocaleString()}</small></div>
-            <b><i />Pending review</b>
+            <b><i />{order.status === "HELD" ? "On hold" : "Pending review"}</b>
           </header>
           <div className="pending-order-body">
             <div className="pending-order-meta">
               <span><small>Sales representative</small>{order.salesRepName}</span>
               <span><small>Customer phone</small>{order.customerPhone || "Not provided"}</span>
               <span className="pending-order-address"><small><FiMapPin aria-hidden="true" /> Delivery address</small>{order.customerAddress}</span>
+              {order.status === "HELD" && <span className="pending-order-hold-note"><small>Hold reason · {order.hold?.productCode}</small>{order.hold?.reason}</span>}
             </div>
             <div className="pending-order-items">
               <div className="pending-order-items-title"><span>Order items</span><small>{order.items.length} {order.items.length === 1 ? "product" : "products"}</small></div>
@@ -2099,14 +2144,15 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
             <footer className="pending-order-footer">
               <div className="pending-order-total"><span>Total quantity <b>{order.totalQuantity} pieces</b></span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
               <div className="pending-order-actions">
-                <button type="button" className="cancel-pending-order" disabled={Boolean(shippingId)} onClick={() => setCancelTarget(order)}>Cancel order</button>
-              <button type="button" className="ready-to-ship-order" disabled={Boolean(shippingId)} onClick={() => setReadyTarget(order)}><FiTruck aria-hidden="true" />Ready to ship</button>
+                <button type="button" className="cancel-pending-order" disabled={actionBusy} onClick={() => setCancelTarget(order)}>Cancel order</button>
+                {order.status === "HELD" ? <button type="button" className="resume-held-order" disabled={actionBusy} onClick={() => resumeOrder(order)}>{resumingId === order._id ? "Resuming..." : "Resume order"}</button> : <><button type="button" className="hold-pending-order" disabled={actionBusy} onClick={() => setHoldTarget(order)}>Put on hold</button><button type="button" className="ready-to-ship-order" disabled={actionBusy} onClick={() => setReadyTarget(order)}><FiTruck aria-hidden="true" />Ready to ship</button></>}
               </div>
             </footer>
           </div>
         </article>)}
       </div> : <p className="empty-dashboard-state">No pending orders for this location.</p>}
       {cancelTarget && <OrderCancellationConfirm order={cancelTarget} actionLabel="Cancel order" busy={cancelling} onClose={() => setCancelTarget(null)} onConfirm={cancelOrder} />}
+      {holdTarget && <OrderHoldModal order={holdTarget} busy={holdingId === holdTarget._id} onClose={() => setHoldTarget(null)} onConfirm={holdOrder} />}
       {readyTarget && <ReadyToShipConfirm order={readyTarget} busy={shippingId === readyTarget._id} onClose={() => setReadyTarget(null)} onConfirm={() => markReadyToShip(readyTarget)} />}
     </section>
   );
@@ -2270,7 +2316,7 @@ function InvoicePreviewModal({ invoice, onClose }) {
   </div>;
 }
 function StockUpdatesHistoryPage() {
-  const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false), [stockImport, setStockImport] = useState(null), [stockImporting, setStockImporting] = useState(false), [stockImportMessage, setStockImportMessage] = useState("");
+  const [products, setProducts] = useState([]), [updates, setUpdates] = useState([]), [error, setError] = useState(""), [filters, setFilters] = useState({ productCode: "", productName: "", style: "", colour: "", size: "" }), [imagePreview, setImagePreview] = useState(null), [stockTarget, setStockTarget] = useState(null), [stockQuantity, setStockQuantity] = useState(""), [stockSaving, setStockSaving] = useState(false), [stockImport, setStockImport] = useState(null), [stockImporting, setStockImporting] = useState(false), [stockImportMessage, setStockImportMessage] = useState(""), [zeroingStock, setZeroingStock] = useState(false);
   useEffect(() => {
     let active = true;
     const load = () => Promise.all([fetch(`${API_URL}/products`), fetch(`${API_URL}/stock-updates`)])
@@ -2367,12 +2413,25 @@ function StockUpdatesHistoryPage() {
       setStockImportMessage(`${result.updated} product${result.updated === 1 ? "" : "s"} updated. ${result.unchanged} unchanged.`); setStockImport(null);
     } catch (importError) { setError(importError.message); } finally { setStockImporting(false); }
   };
+  const zeroAllAvailableStock = async () => {
+    const stockedProducts = products.filter((product) => Number(product.openingStock || 0) > 0);
+    if (!stockedProducts.length) return setStockImportMessage("All product stock is already zero.");
+    if (!window.confirm(`Set the available stock of all ${stockedProducts.length} products to 0? This cannot be undone automatically.`)) return;
+    setZeroingStock(true); setError(""); setStockImportMessage("");
+    try {
+      const response = await fetch(`${API_URL}/products/zero-all-stock`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || "Unable to reset stock.");
+      setProducts((current) => current.map((product) => Number(product.openingStock || 0) > 0 ? { ...product, openingStock: 0 } : product));
+      setStockImportMessage(`${result.updated} product${result.updated === 1 ? "" : "s"} reset to zero.`);
+    } catch (requestError) { setError(requestError.message); } finally { setZeroingStock(false); }
+  };
   return <section className="stock-updates-history-page">
     <div className="page-title"><div><p className="eyebrow">INVENTORY AUDIT</p><h1>Available stock</h1><p className="page-description">Products with stock currently available, including the latest Location Manager update where recorded.</p></div></div>
     {error && <p className="dashboard-error">{error}</p>}
     <section className="stock-sheet-import" aria-labelledby="stock-sheet-import-title">
       <div><p className="eyebrow">BULK STOCK UPDATE</p><h2 id="stock-sheet-import-title">Upload stock sheet</h2><p>Upload an <b>.xls</b> or <b>.xlsx</b> file. The columns <b>Level Code</b> and <b>Qty</b> are detected automatically; Qty replaces the current stock quantity.</p></div>
-      <label className="stock-sheet-upload"><FiUploadCloud aria-hidden="true" />{stockImporting ? "Reading..." : "Choose spreadsheet"}<input type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={stockImporting} onChange={readStockSheet} /></label>
+      <div className="stock-sheet-actions"><button type="button" className="reset-all-stock" disabled={zeroingStock} onClick={zeroAllAvailableStock}>{zeroingStock ? "Resetting..." : "Set all stock to 0"}</button><label className="stock-sheet-upload"><FiUploadCloud aria-hidden="true" />{stockImporting ? "Reading..." : "Choose spreadsheet"}<input type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={stockImporting || zeroingStock} onChange={readStockSheet} /></label></div>
     </section>
     {stockImportMessage && <p className="stock-update-success">{stockImportMessage}</p>}
     {stockImport && <section className="stock-sheet-preview"><div className="stock-sheet-preview-heading"><div><p className="eyebrow">UPLOAD PREVIEW</p><h2>{stockImport.fileName}</h2><p>{stockImport.rows.length} rows · {stockImport.rows.filter((row) => row.issues.length).length} need attention</p></div><button type="button" className="close-modal" onClick={() => setStockImport(null)} aria-label="Close preview"><FiX /></button></div><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Sheet row</th><th>Level Code</th><th>Product</th><th>Current Qty</th><th>New Qty</th><th>Status</th></tr></thead><tbody>{stockImport.rows.map((row) => <tr key={row.rowNumber} className={row.issues.length ? "stock-sheet-row-error" : ""}><td>{row.rowNumber}</td><td>{row.levelCode || "—"}</td><td>{row.product?.productName || "—"}</td><td>{row.product ? Number(row.product.openingStock || 0).toLocaleString() : "—"}</td><td>{Number.isFinite(row.quantity) ? row.quantity.toLocaleString() : "—"}</td><td>{row.issues.length ? row.issues.join(" ") : row.product.openingStock === row.quantity ? "No change" : "Ready"}</td></tr>)}</tbody></table></div><footer className="stock-sheet-preview-footer"><span>{stockImport.rows.some((row) => row.issues.length) ? "Fix the red rows before confirming." : `${stockImport.rows.filter((row) => row.product.openingStock !== row.quantity).length} quantities will be updated.`}</span><button type="button" className={stockImport.rows.some((row) => row.issues.length) ? "is-disabled" : ""} disabled={stockImporting || stockImport.rows.some((row) => row.issues.length)} title={stockImport.rows.some((row) => row.issues.length) ? "Fix the red rows in the preview first." : "Update the displayed stock quantities."} onClick={confirmStockImport}>{stockImporting ? "Updating..." : "Confirm stock update"}</button></footer></section>}
