@@ -62,7 +62,6 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
       order.customerName,
       order.customerBranchName && order.customerBranchName !== "Billing address" ? `- ${order.customerBranchName}` : "",
       order.customerAddress ? `- ${order.customerAddress}` : "",
-      order.customerTinNo || order.customerVatNo ? `- TIN NO: ${order.customerTinNo || order.customerVatNo}` : "",
     ].filter(Boolean).join(" ");
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
