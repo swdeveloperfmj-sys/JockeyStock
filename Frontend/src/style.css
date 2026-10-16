@@ -3381,11 +3381,21 @@ label {
 .pending-order-actions button { flex: 1 1 110px; white-space: nowrap; }
 .hold-pending-order { width: auto; min-height: 38px; margin: 0; padding: 8px 12px; border: 1px solid #d88927; background: transparent !important; color: #b36a12 !important; box-shadow: none !important; }
 .resume-held-order { width: auto; min-height: 38px; margin: 0; padding: 8px 12px; background: #d88927 !important; color: #fff !important; }
-.order-hold-modal { display: grid; gap: 14px; text-align: left; }
+.order-hold-modal { display: grid; width: min(520px, 100%); max-height: calc(100dvh - 40px); gap: 14px; overflow-y: auto; text-align: left; }
 .order-hold-modal .eyebrow, .order-hold-modal h2, .order-hold-modal > p { text-align: center; }
 .order-hold-modal > p, .order-hold-modal > h2 { margin: 0; }
 .order-hold-modal label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 700; }
-.order-hold-modal select, .order-hold-modal textarea { width: 100%; margin: 0; }
+.order-hold-modal textarea { width: 100%; margin: 0; border-color: var(--border); background: var(--surface); color: var(--ink); }
+.order-hold-modal textarea::placeholder { color: var(--muted); opacity: .85; }
+.hold-item-picker { display: grid; max-height: 245px; gap: 8px; margin: 0; padding: 10px; overflow-y: auto; border: 1px solid var(--border); border-radius: 9px; }
+.hold-item-picker legend { padding: 0 5px; color: var(--muted); font-size: .72rem; font-weight: 800; }
+.hold-item-picker legend span { margin-left: 7px; color: #b36a12; }
+.order-hold-modal .hold-item-picker label { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface) 92%, var(--cream)); cursor: pointer; }
+.order-hold-modal .hold-item-picker label.is-selected { border-color: #d88927; background: rgba(238, 151, 47, .12); }
+.order-hold-modal .hold-item-picker input { width: 17px; height: 17px; margin: 0; accent-color: #d88927; }
+.hold-item-picker strong, .hold-item-picker small { display: block; overflow-wrap: anywhere; }
+.hold-item-picker strong { color: var(--ink); font-size: .78rem; }
+.hold-item-picker small { margin-top: 3px; color: var(--muted); font-size: .67rem; font-weight: 500; }
 .sales-order-status { display: inline-flex; width: fit-content; margin-top: 7px; padding: 4px 7px; border-radius: 999px; background: rgba(255, 107, 53, .1); color: var(--red); font-size: .62rem; text-transform: uppercase; }
 .sales-order-status.is-held { background: rgba(238, 151, 47, .15); color: #b36a12; }
 .sales-order-hold-reason { margin-top: 5px; color: #b36a12 !important; }

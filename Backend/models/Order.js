@@ -4,6 +4,9 @@ const orderItemSchema = new mongoose.Schema({
   productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
   productCode: { type: String, required: true, trim: true },
   productName: { type: String, required: true, trim: true },
+  style: { type: String, trim: true },
+  color: { type: String, trim: true },
+  size: { type: String, trim: true },
   quantity: { type: Number, required: true, min: 1 },
   unitPrice: { type: Number, required: true, min: 0 },
   total: { type: Number, required: true, min: 0 }
@@ -32,6 +35,15 @@ const orderSchema = new mongoose.Schema({
     productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     productCode: { type: String, trim: true },
     productName: { type: String, trim: true },
+    items: [{
+      productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+      productCode: { type: String, required: true, trim: true },
+      productName: { type: String, required: true, trim: true },
+      style: { type: String, trim: true },
+      color: { type: String, trim: true },
+      size: { type: String, trim: true },
+      quantity: { type: Number, required: true, min: 1 }
+    }],
     reason: { type: String, trim: true, maxlength: 500 },
     heldAt: { type: Date },
     heldBy: { type: String, trim: true }

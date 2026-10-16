@@ -1671,7 +1671,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                 </span>
                 <small>{new Date(order.createdAt).toLocaleString()}</small>
                 <b className={`sales-order-status ${order.status === "HELD" ? "is-held" : ""}`}>{order.status === "HELD" ? "On hold" : order.status}</b>
-                {order.status === "HELD" && <small className="sales-order-hold-reason">{order.hold?.productCode}: {order.hold?.reason}</small>}
+                {order.status === "HELD" && <small className="sales-order-hold-reason">{order.hold?.items?.map((item) => item.productCode).join(", ") || order.hold?.productCode}: {order.hold?.reason}</small>}
               </div>
               <div>
                 <span>{order.totalQuantity} items</span>
@@ -1742,7 +1742,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                 </strong>
               </div>
             </div>
-            {selectedOrder.status === "HELD" && <div className="order-detail-hold"><strong>Order on hold</strong><span>{selectedOrder.hold?.productCode} — {selectedOrder.hold?.productName}</span><p>{selectedOrder.hold?.reason}</p></div>}
+            {selectedOrder.status === "HELD" && <div className="order-detail-hold"><strong>Order on hold</strong><span>{selectedOrder.hold?.items?.length ? selectedOrder.hold.items.map((item) => `${item.productCode} — ${item.productName}${item.color ? ` (${item.color})` : ""}`).join(", ") : `${selectedOrder.hold?.productCode || ""} — ${selectedOrder.hold?.productName || ""}`}</span><p>{selectedOrder.hold?.reason}</p></div>}
             <div className="sales-cart">
               <table className="order-items-table">
                 <thead>
@@ -2027,20 +2027,21 @@ function ReadyToShipConfirm({ order, busy, onClose, onConfirm }) {
   </div>;
 }
 function OrderHoldModal({ order, busy, onClose, onConfirm }) {
-  const [productId, setProductId] = useState(order.items[0]?.productId || "");
+  const [productIds, setProductIds] = useState(order.items[0]?.productId ? [String(order.items[0].productId)] : []);
   const [reason, setReason] = useState("");
+  const toggleProduct = (productId) => setProductIds((items) => items.includes(String(productId)) ? items.filter((id) => id !== String(productId)) : [...items, String(productId)]);
   const submit = (event) => {
     event.preventDefault();
-    onConfirm({ productId, reason });
+    onConfirm({ productIds, reason });
   };
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <form className="confirm-modal order-hold-modal" role="dialog" aria-modal="true" aria-labelledby="order-hold-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
       <p className="eyebrow">PLACE ORDER ON HOLD</p>
       <h2 id="order-hold-title">Hold {order.orderNumber}</h2>
       <p>The stock will remain reserved until this order is resumed or cancelled.</p>
-      <label>Affected item<select value={productId} onChange={(event) => setProductId(event.target.value)} required>{order.items.map((item) => <option key={item.productId} value={item.productId}>{item.productCode} — {item.productName} ({item.quantity} pcs)</option>)}</select></label>
+      <fieldset className="hold-item-picker"><legend>Affected items <span>{productIds.length} selected</span></legend>{order.items.map((item) => { const id = String(item.productId); return <label className={productIds.includes(id) ? "is-selected" : ""} key={id}><input type="checkbox" checked={productIds.includes(id)} onChange={() => toggleProduct(id)} /><span><strong>{item.productName}</strong><small>{item.productCode} · {[item.color, item.size].filter(Boolean).join(" · ") || "Colour/size not recorded"} · {item.quantity} pcs</small></span></label>; })}</fieldset>
       <label>Reason<textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} minLength="3" maxLength="500" rows="4" placeholder="e.g. Damaged items found during packing" required /></label>
-      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Keep pending</button><button type="submit" disabled={busy || reason.trim().length < 3}>{busy ? "Placing on hold..." : "Place on hold"}</button></div>
+      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Keep pending</button><button type="submit" disabled={busy || !productIds.length || reason.trim().length < 3}>{busy ? "Placing on hold..." : "Place on hold"}</button></div>
     </form>
   </div>;
 }
@@ -2096,11 +2097,11 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
       setShippingId("");
     }
   };
-  const holdOrder = async ({ productId, reason }) => {
+  const holdOrder = async ({ productIds, reason }) => {
     if (!holdTarget) return;
     setHoldingId(holdTarget._id); setError("");
     try {
-      const response = await fetch(`${API_URL}/orders/${holdTarget._id}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId, reason }) });
+      const response = await fetch(`${API_URL}/orders/${holdTarget._id}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productIds, reason }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
       setOrders((items) => items.map((order) => order._id === data._id ? data : order));
@@ -2135,11 +2136,11 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
               <span><small>Sales representative</small>{order.salesRepName}</span>
               <span><small>Customer phone</small>{order.customerPhone || "Not provided"}</span>
               <span className="pending-order-address"><small><FiMapPin aria-hidden="true" /> Delivery address</small>{order.customerAddress}</span>
-              {order.status === "HELD" && <span className="pending-order-hold-note"><small>Hold reason · {order.hold?.productCode}</small>{order.hold?.reason}</span>}
+              {order.status === "HELD" && <span className="pending-order-hold-note"><small>Hold reason · {order.hold?.items?.map((item) => item.productCode).join(", ") || order.hold?.productCode}</small>{order.hold?.reason}</span>}
             </div>
             <div className="pending-order-items">
               <div className="pending-order-items-title"><span>Order items</span><small>{order.items.length} {order.items.length === 1 ? "product" : "products"}</small></div>
-              {order.items.map((item) => <div className="pending-order-item" key={item.productId}><span>{item.productName}<small>{item.productCode}</small></span><b>{item.quantity} <small>pcs</small></b></div>)}
+              {order.items.map((item) => <div className="pending-order-item" key={item.productId}><span>{item.productName}<small>{item.productCode}{[item.color, item.size].filter(Boolean).length ? ` · ${[item.color, item.size].filter(Boolean).join(" · ")}` : ""}</small></span><b>{item.quantity} <small>pcs</small></b></div>)}
             </div>
             <footer className="pending-order-footer">
               <div className="pending-order-total"><span>Total quantity <b>{order.totalQuantity} pieces</b></span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
@@ -2161,7 +2162,7 @@ function ShipmentItemsModal({ order, onClose }) {
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="shipment-items-modal" role="dialog" aria-modal="true" aria-labelledby="shipment-items-title" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-title"><div><p className="eyebrow">SHIPMENT ORDER ITEMS</p><h2 id="shipment-items-title">{order.orderNumber}</h2><p>{order.customerName} · {order.totalQuantity} pieces</p></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close"><FiX /></button></div>
-      <div className="shipment-items-table-wrap"><table className="shipment-items-table"><thead><tr><th>Product</th><th>Code</th><th>Qty.</th><th>Unit price</th><th>Total</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.productId}><td>{item.productName}</td><td>{item.productCode}</td><td>{item.quantity}</td><td>LKR {Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td><td>LKR {Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
+      <div className="shipment-items-table-wrap"><table className="shipment-items-table"><thead><tr><th>Product</th><th>Code / variant</th><th>Qty.</th><th>Unit price</th><th>Total</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.productId}><td>{item.productName}</td><td>{item.productCode}{[item.color, item.size].filter(Boolean).length ? <small>{[item.color, item.size].filter(Boolean).join(" · ")}</small> : null}</td><td>{item.quantity}</td><td>LKR {Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td><td>LKR {Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
       <div className="shipment-items-modal-total"><span>Order total</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
     </section>
   </div>;
