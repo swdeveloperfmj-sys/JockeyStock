@@ -356,7 +356,16 @@ app.get('/api/orders', async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999+05:30`);
     }
   }
-  res.json(await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200));
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200).lean();
+  const missingDetailIds = [...new Set(orders.flatMap((order) => order.items.filter((item) => !item.color || !item.size || !item.style).map((item) => String(item.productId))))];
+  if (missingDetailIds.length) {
+    const products = await Product.find({ _id: { $in: missingDetailIds } }).select('_id style color size').lean();
+    const productById = new Map(products.map((product) => [String(product._id), product]));
+    orders.forEach((order) => {
+      order.items = order.items.map((item) => ({ ...item, ...(productById.get(String(item.productId)) || {}) }));
+    });
+  }
+  res.json(orders);
 });
 const invoiceUpload = multer({
   storage: multer.memoryStorage(),
@@ -564,29 +573,37 @@ app.post('/api/orders/:id/hold', async (req, res) => {
   if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can hold orders.' });
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
 
-  const productId = String(req.body.productId || '');
+  const productIds = [...new Set((Array.isArray(req.body.productIds) ? req.body.productIds : [req.body.productId]).map(String).filter(Boolean))];
   const reason = String(req.body.reason || '').trim();
-  if (!mongoose.isValidObjectId(productId)) return res.status(400).json({ message: 'Select the affected item.' });
+  if (!productIds.length || productIds.some((productId) => !mongoose.isValidObjectId(productId))) return res.status(400).json({ message: 'Select at least one affected item.' });
   if (reason.length < 3 || reason.length > 500) return res.status(400).json({ message: 'Enter a hold reason between 3 and 500 characters.' });
 
   try {
     const pendingOrder = await Order.findOne({ _id: req.params.id, location: user.location, status: 'PENDING' });
     if (!pendingOrder) return res.status(409).json({ message: 'This pending order is no longer available.' });
-    const affectedItem = pendingOrder.items.find((item) => String(item.productId) === productId);
-    if (!affectedItem) return res.status(400).json({ message: 'The selected item is not part of this order.' });
+    const affectedItems = productIds.map((productId) => pendingOrder.items.find((item) => String(item.productId) === productId));
+    if (affectedItems.some((item) => !item)) return res.status(400).json({ message: 'One of the selected items is not part of this order.' });
+    const products = await Product.find({ _id: { $in: pendingOrder.items.map((item) => item.productId) } }).select('_id style color size').lean();
+    const productById = new Map(products.map((product) => [String(product._id), product]));
+    const heldItems = affectedItems.map((item) => {
+      const product = productById.get(String(item.productId)) || {};
+      return { productId: item.productId, productCode: item.productCode, productName: item.productName, style: item.style || product.style, color: item.color || product.color, size: item.size || product.size, quantity: item.quantity };
+    });
 
     const order = await Order.findOneAndUpdate(
       { _id: pendingOrder._id, status: 'PENDING' },
-      { $set: { status: 'HELD', hold: { productId: affectedItem.productId, productCode: affectedItem.productCode, productName: affectedItem.productName, reason, heldAt: new Date(), heldBy: user.name } } },
+      { $set: { status: 'HELD', hold: { items: heldItems, reason, heldAt: new Date(), heldBy: user.name } } },
       { new: true, runValidators: true }
     );
     if (!order) return res.status(409).json({ message: 'This pending order is no longer available.' });
     publishOrderUpdate();
     try {
       const recipients = await User.find({ _id: order.salesRepId }).select('_id email contactNumber');
-      await notifyOrderRecipients(recipients, `Order on hold ${order.orderNumber}`, `${user.name} placed ${order.orderNumber} on hold for ${affectedItem.productName}: ${reason}`);
+      await notifyOrderRecipients(recipients, `Order on hold ${order.orderNumber}`, `${user.name} placed ${order.orderNumber} on hold for ${heldItems.map((item) => item.productName).join(', ')}: ${reason}`);
     } catch (notificationError) { console.error('Order-hold notification failed:', notificationError.message); }
-    res.json(order);
+    const responseOrder = order.toObject();
+    responseOrder.items = responseOrder.items.map((item) => ({ ...item, ...(productById.get(String(item.productId)) || {}) }));
+    res.json(responseOrder);
   } catch (error) {
     res.status(400).json({ message: error.message || 'Unable to place the order on hold.' });
   }
@@ -692,6 +709,9 @@ app.post('/api/orders', async (req, res) => {
           productId: product._id,
           productCode: product.productCode,
           productName: product.productName,
+          style: product.style,
+          color: product.color,
+          size: product.size,
           quantity,
           unitPrice,
           total: unitPrice * quantity,
@@ -793,7 +813,7 @@ app.patch('/api/orders/:id', async (req, res) => {
         const quantity = Number(item.quantity);
         if (!product || product.plant !== order.location) throw new Error('Products must belong to the original factory.');
         if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
-        return { productId: product._id, productCode: product.productCode, productName: product.productName, quantity, unitPrice: Number(product.sellingPrice), total: Number(product.sellingPrice) * quantity, plant: product.plant };
+        return { productId: product._id, productCode: product.productCode, productName: product.productName, style: product.style, color: product.color, size: product.size, quantity, unitPrice: Number(product.sellingPrice), total: Number(product.sellingPrice) * quantity, plant: product.plant };
       }));
       changedProductIds.push(...requestedItems.map((item) => item.productId));
       for (const item of requestedItems) {
