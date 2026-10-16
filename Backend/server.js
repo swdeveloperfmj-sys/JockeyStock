@@ -392,7 +392,17 @@ app.get('/api/shipments', async (req, res) => {
   const locationManager = user.role === 'LOCATION_MANAGER';
   if (!locationManager && !(isSalesDepartment(user) && user.location === INVENTORY_LOCATION)) return res.status(403).json({ message: 'You are not allowed to view shipments.' });
   const filter = locationManager ? { location: user.location, status: 'COMPLETED' } : { status: 'COMPLETED' };
-  res.json(await Order.find(filter).sort({ updatedAt: -1 }).limit(200));
+  const shipments = await Order.find(filter).sort({ updatedAt: -1 }).limit(200).lean();
+  const customerIds = [...new Set(shipments.map((order) => String(order.customerId || '')).filter((id) => mongoose.isValidObjectId(id)))];
+  if (customerIds.length) {
+    const customers = await Customer.find({ _id: { $in: customerIds } }).select('_id tinNo vatNo').lean();
+    const customerById = new Map(customers.map((customer) => [String(customer._id), customer]));
+    shipments.forEach((order) => {
+      const customer = customerById.get(String(order.customerId));
+      if (customer) order.customerTinNo = customer.tinNo || customer.vatNo || '';
+    });
+  }
+  res.json(shipments);
 });
 
 app.post('/api/shipments/:id/invoice', receiveInvoice, async (req, res) => {
@@ -1140,7 +1150,7 @@ app.post('/api/customers', async (req, res) => {
   const { customerName, billingAddress, contact = '', tinNo, discount = 0, paymentTerm, branches = [] } = req.body;
   const numericDiscount = Number(discount);
   const allowedPaymentTerms = ['30 DAYS', '45 DAYS', '60 DAYS', '90 DAYS'];
-  if (!customerName?.trim() || !billingAddress?.trim() || !tinNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and TIN number are required.' });
+  if (!customerName?.trim() || !billingAddress?.trim()) return res.status(400).json({ message: 'Customer name and billing address are required.' });
   if (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
   if (!allowedPaymentTerms.includes(paymentTerm)) return res.status(400).json({ message: 'Select a valid payment term.' });
   if (!Array.isArray(branches) || branches.length > 100 || branches.some((branch) => !branch?.branchName?.trim())) {
@@ -1161,7 +1171,7 @@ app.post('/api/customers', async (req, res) => {
         customerName: customerName.trim(),
         billingAddress: billingAddress.trim(),
         contact: String(contact || '').trim(),
-        tinNo: tinNo.trim(),
+        tinNo: tinNo?.trim() || '',
         discount: numericDiscount,
         paymentTerm,
         branches: branches.map((branch) => ({
@@ -1187,7 +1197,7 @@ app.patch('/api/customers/:id', async (req, res) => {
   const { customerName, billingAddress, contact = '', tinNo, discount = 0, paymentTerm, branches = [] } = req.body;
   const numericDiscount = Number(discount);
   const allowedPaymentTerms = ['30 DAYS', '45 DAYS', '60 DAYS', '90 DAYS'];
-  if (!customerName?.trim() || !billingAddress?.trim() || !tinNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and TIN number are required.' });
+  if (!customerName?.trim() || !billingAddress?.trim()) return res.status(400).json({ message: 'Customer name and billing address are required.' });
   if (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
   if (!allowedPaymentTerms.includes(paymentTerm)) return res.status(400).json({ message: 'Select a valid payment term.' });
   if (!Array.isArray(branches) || branches.length > 100 || branches.some((branch) => !branch?.branchName?.trim())) {
@@ -1199,7 +1209,7 @@ app.patch('/api/customers/:id', async (req, res) => {
         customerName: customerName.trim(),
         billingAddress: billingAddress.trim(),
         contact: String(contact || '').trim(),
-        tinNo: tinNo.trim(),
+        tinNo: tinNo?.trim() || '',
         discount: numericDiscount,
         paymentTerm,
         branches: branches.map((branch) => ({

@@ -23,6 +23,11 @@ const invoiceNumberFor = (order, date) => {
   return `I${String(date.getFullYear()).slice(-2)}${orderDigits}`;
 };
 
+const customerTinFor = (order) => {
+  const tin = String(order.customerTinNo || order.customerVatNo || "").trim();
+  return ["0", "-", "N/A", "NA", "NONE"].includes(tin.toUpperCase()) ? "" : tin;
+};
+
 export async function createShipmentInvoicePdf(order, issuedByName = "") {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -33,7 +38,8 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
   const dueDate = new Date(invoiceDate);
   dueDate.setDate(dueDate.getDate() + creditDays);
   const invoiceNumber = invoiceNumberFor(order, invoiceDate);
-  const hasCustomerTin = Boolean(String(order.customerTinNo || order.customerVatNo || "").trim());
+  const customerTin = customerTinFor(order);
+  const hasCustomerTin = Boolean(customerTin);
 
   const drawHeader = (continuation = false) => {
     doc.setTextColor(20, 20, 20);
@@ -52,11 +58,9 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text(continuation ? "INVOICE - CONTINUED" : "SALES ORDER / INVOICE", 172.5, 18.5, { align: "center" });
-    if (hasCustomerTin) {
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "normal");
-      doc.text(`TIN No: ${COMPANY.tin}`, 172.5, 27, { align: "center" });
-    }
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`TIN No: ${COMPANY.tin}`, 172.5, 27, { align: "center" });
   };
 
   const drawCustomerBlock = () => {
@@ -65,6 +69,7 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
       order.customerName,
       order.customerBranchName && order.customerBranchName !== "Billing address" ? `- ${order.customerBranchName}` : "",
       order.customerAddress ? `- ${order.customerAddress}` : "",
+      hasCustomerTin ? `- TIN NO: ${customerTin}` : "",
     ].filter(Boolean).join(" ");
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");

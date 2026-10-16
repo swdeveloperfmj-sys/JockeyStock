@@ -11,7 +11,7 @@ const customerSchema = new mongoose.Schema({
   customerName: { type: String, required: true, trim: true, maxlength: 200 },
   billingAddress: { type: String, required: true, trim: true, maxlength: 500 },
   contact: { type: String, trim: true, default: '', maxlength: 80 },
-  tinNo: { type: String, required: true, trim: true, maxlength: 80 },
+  tinNo: { type: String, trim: true, maxlength: 80, default: '' },
   // Kept only to display existing customer records until they are edited and migrated to tinNo.
   vatNo: { type: String, trim: true, maxlength: 80 },
   discount: { type: Number, min: 0, max: 100, default: 0 },

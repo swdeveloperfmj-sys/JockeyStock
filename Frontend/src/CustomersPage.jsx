@@ -170,7 +170,7 @@ export default function CustomersPage() {
         <label className="customer-name-field">Customer Name<input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} maxLength="200" required /></label>
         <label className="customer-address-field">Billing Address<textarea value={form.billingAddress} onChange={(event) => setForm((current) => ({ ...current, billingAddress: event.target.value }))} maxLength="500" required /></label>
         <label className="customer-contact-field"><span className="customer-field-label">Contact <small>(optional)</small></span><input value={form.contact} onChange={(event) => setForm((current) => ({ ...current, contact: event.target.value }))} maxLength="80" /></label>
-        <label className="customer-vat-field">TIN No.<input value={form.tinNo} onChange={(event) => setForm((current) => ({ ...current, tinNo: event.target.value }))} maxLength="80" required /></label>
+        <label className="customer-vat-field">TIN No.<input value={form.tinNo} onChange={(event) => setForm((current) => ({ ...current, tinNo: event.target.value }))} maxLength="80" /></label>
         <label className="customer-discount-field">Discount (%)<input type="number" min="0" max="100" step="0.01" value={form.discount} onChange={(event) => setForm((current) => ({ ...current, discount: event.target.value }))} required /></label>
         <label className="customer-payment-field">Payment Term<select value={form.paymentTerm} onChange={(event) => setForm((current) => ({ ...current, paymentTerm: event.target.value }))}><option>30 DAYS</option><option>45 DAYS</option><option>60 DAYS</option><option>90 DAYS</option></select></label>
       </div>
