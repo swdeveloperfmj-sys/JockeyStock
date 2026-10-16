@@ -62,7 +62,7 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
       order.customerName,
       order.customerBranchName && order.customerBranchName !== "Billing address" ? `- ${order.customerBranchName}` : "",
       order.customerAddress ? `- ${order.customerAddress}` : "",
-      order.customerVatNo ? `- TIN NO: ${order.customerVatNo}` : "",
+      order.customerTinNo || order.customerVatNo ? `- TIN NO: ${order.customerTinNo || order.customerVatNo}` : "",
     ].filter(Boolean).join(" ");
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
@@ -177,7 +177,6 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
   const signatureY = commentsTop + 45;
   doc.setLineDashPattern([1, 1], 0);
   doc.line(6, signatureY, 32, signatureY);
-  doc.line(37, signatureY, 63, signatureY);
   doc.line(68, signatureY, 94, signatureY);
   doc.line(132, signatureY, 162, signatureY);
   doc.line(168, signatureY, 198, signatureY);
@@ -196,7 +195,6 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(6.8);
   doc.text("ISSUED BY", 19, signatureY + 5, { align: "center" });
-  doc.text("CHECKED BY", 50, signatureY + 5, { align: "center" });
   doc.text("AUTHORIZED BY", 81, signatureY + 5, { align: "center" });
   doc.text("CUSTOMER NAME", 147, signatureY + 5, { align: "center" });
   doc.text("SIGNATURE", 183, signatureY + 5, { align: "center" });

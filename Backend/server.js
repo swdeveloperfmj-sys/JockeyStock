@@ -346,8 +346,8 @@ app.get('/api/orders', async (req, res) => {
   const filter = user.role === 'SUPER_ADMIN'
     ? {}
     : user.role === 'LOCATION_MANAGER'
-      ? { location: user.location, status: 'PENDING' }
-      : { salesRepId: user._id, status: 'PENDING' };
+      ? { location: user.location, status: { $in: ['PENDING', 'HELD'] } }
+      : { salesRepId: user._id, status: { $in: ['PENDING', 'HELD'] } };
   if (user.role === 'SUPER_ADMIN') {
     const { startDate, endDate } = req.query;
     if (startDate || endDate) {
@@ -522,7 +522,7 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     let cancelledOrder;
     await dbSession.withTransaction(async () => {
       const order = await Order.findById(req.params.id).session(dbSession);
-      if (!order || order.status !== 'PENDING') throw new Error('This pending order is no longer available.');
+      if (!order || !['PENDING', 'HELD'].includes(order.status)) throw new Error('This pending order is no longer available.');
       if (user.role === 'LOCATION_MANAGER' && order.location !== user.location) throw new Error('This order does not belong to your factory.');
       if (user.role === 'SALES_REP' && (String(order.salesRepId) !== String(user._id) || !isTodayInSriLanka(order.createdAt))) {
         throw new Error('Sales Representatives can reverse only their own orders created today.');
@@ -553,6 +553,66 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
     res.status(error.message === 'This pending order is no longer available.' ? 409 : 400).json({ message: error.message || 'Unable to cancel the order.' });
   } finally {
     await dbSession.endSession();
+  }
+});
+
+// A hold keeps the order's stock reserved while the location manager resolves
+// a damaged or otherwise unavailable item. It can later be resumed or cancelled.
+app.post('/api/orders/:id/hold', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can hold orders.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
+
+  const productId = String(req.body.productId || '');
+  const reason = String(req.body.reason || '').trim();
+  if (!mongoose.isValidObjectId(productId)) return res.status(400).json({ message: 'Select the affected item.' });
+  if (reason.length < 3 || reason.length > 500) return res.status(400).json({ message: 'Enter a hold reason between 3 and 500 characters.' });
+
+  try {
+    const pendingOrder = await Order.findOne({ _id: req.params.id, location: user.location, status: 'PENDING' });
+    if (!pendingOrder) return res.status(409).json({ message: 'This pending order is no longer available.' });
+    const affectedItem = pendingOrder.items.find((item) => String(item.productId) === productId);
+    if (!affectedItem) return res.status(400).json({ message: 'The selected item is not part of this order.' });
+
+    const order = await Order.findOneAndUpdate(
+      { _id: pendingOrder._id, status: 'PENDING' },
+      { $set: { status: 'HELD', hold: { productId: affectedItem.productId, productCode: affectedItem.productCode, productName: affectedItem.productName, reason, heldAt: new Date(), heldBy: user.name } } },
+      { new: true, runValidators: true }
+    );
+    if (!order) return res.status(409).json({ message: 'This pending order is no longer available.' });
+    publishOrderUpdate();
+    try {
+      const recipients = await User.find({ _id: order.salesRepId }).select('_id email contactNumber');
+      await notifyOrderRecipients(recipients, `Order on hold ${order.orderNumber}`, `${user.name} placed ${order.orderNumber} on hold for ${affectedItem.productName}: ${reason}`);
+    } catch (notificationError) { console.error('Order-hold notification failed:', notificationError.message); }
+    res.json(order);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to place the order on hold.' });
+  }
+});
+
+app.post('/api/orders/:id/resume', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can resume held orders.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
+
+  try {
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.id, location: user.location, status: 'HELD' },
+      { $set: { status: 'PENDING' }, $unset: { hold: 1 } },
+      { new: true }
+    );
+    if (!order) return res.status(409).json({ message: 'This held order is no longer available.' });
+    publishOrderUpdate();
+    try {
+      const recipients = await User.find({ _id: order.salesRepId }).select('_id email contactNumber');
+      await notifyOrderRecipients(recipients, `Order resumed ${order.orderNumber}`, `${user.name} resumed ${order.orderNumber}. It is pending shipment review again.`);
+    } catch (notificationError) { console.error('Order-resume notification failed:', notificationError.message); }
+    res.json(order);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to resume the held order.' });
   }
 });
 
@@ -664,7 +724,7 @@ app.post('/api/orders', async (req, res) => {
         customerAddress: deliveryAddress,
         customerBranchId: selectedBranch ? String(selectedBranch._id) : 'billing',
         customerBranchName: selectedBranch?.branchName || 'Billing address',
-        customerVatNo: customer.vatNo,
+        customerTinNo: customer.tinNo || customer.vatNo,
         customerDiscount: customer.discount,
         customerPaymentTerm: customer.paymentTerm,
         salesRepId: user._id,
@@ -747,7 +807,7 @@ app.patch('/api/orders/:id', async (req, res) => {
       order.customerAddress = deliveryAddress;
       order.customerBranchId = selectedBranch ? String(selectedBranch._id) : 'billing';
       order.customerBranchName = selectedBranch?.branchName || 'Billing address';
-      order.customerVatNo = customer.vatNo;
+      order.customerTinNo = customer.tinNo || customer.vatNo;
       order.customerDiscount = customer.discount;
       order.customerPaymentTerm = customer.paymentTerm;
       order.items = requestedItems;
@@ -919,6 +979,31 @@ app.patch('/api/products/:id/stock', async (req, res) => {
   }
   res.json(product);
 });
+app.post('/api/products/zero-all-stock', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can reset all stock quantities.' });
+
+  const products = await Product.find({ openingStock: { $gt: 0 } });
+  if (!products.length) return res.json({ updated: 0 });
+
+  await Product.bulkWrite(products.map((product) => ({
+    updateOne: { filter: { _id: product._id }, update: { $set: { openingStock: 0 } } }
+  })));
+  const updatedProducts = await Product.find({ _id: { $in: products.map((product) => product._id) } });
+  await StockUpdate.insertMany(products.map((product) => ({
+    productId: product._id,
+    productCode: product.productCode,
+    productName: product.productName,
+    quantityAdded: -Number(product.openingStock || 0),
+    resultingStock: 0,
+    location: product.plant,
+    managerId: user._id,
+    managerName: user.name
+  })));
+  publishStockUpdate(updatedProducts);
+  res.json({ updated: products.length });
+});
 app.post('/api/products/stock-import', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -1032,10 +1117,10 @@ app.post('/api/customers', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can add customers.' });
-  const { customerName, billingAddress, contact = '', vatNo, discount = 0, paymentTerm, branches = [] } = req.body;
+  const { customerName, billingAddress, contact = '', tinNo, discount = 0, paymentTerm, branches = [] } = req.body;
   const numericDiscount = Number(discount);
   const allowedPaymentTerms = ['30 DAYS', '45 DAYS', '60 DAYS', '90 DAYS'];
-  if (!customerName?.trim() || !billingAddress?.trim() || !vatNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and VAT number are required.' });
+  if (!customerName?.trim() || !billingAddress?.trim() || !tinNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and TIN number are required.' });
   if (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
   if (!allowedPaymentTerms.includes(paymentTerm)) return res.status(400).json({ message: 'Select a valid payment term.' });
   if (!Array.isArray(branches) || branches.length > 100 || branches.some((branch) => !branch?.branchName?.trim())) {
@@ -1056,7 +1141,7 @@ app.post('/api/customers', async (req, res) => {
         customerName: customerName.trim(),
         billingAddress: billingAddress.trim(),
         contact: String(contact || '').trim(),
-        vatNo: vatNo.trim(),
+        tinNo: tinNo.trim(),
         discount: numericDiscount,
         paymentTerm,
         branches: branches.map((branch) => ({
@@ -1079,10 +1164,10 @@ app.patch('/api/customers/:id', async (req, res) => {
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can update customers.' });
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid customer.' });
-  const { customerName, billingAddress, contact = '', vatNo, discount = 0, paymentTerm, branches = [] } = req.body;
+  const { customerName, billingAddress, contact = '', tinNo, discount = 0, paymentTerm, branches = [] } = req.body;
   const numericDiscount = Number(discount);
   const allowedPaymentTerms = ['30 DAYS', '45 DAYS', '60 DAYS', '90 DAYS'];
-  if (!customerName?.trim() || !billingAddress?.trim() || !vatNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and VAT number are required.' });
+  if (!customerName?.trim() || !billingAddress?.trim() || !tinNo?.trim()) return res.status(400).json({ message: 'Customer name, billing address, and TIN number are required.' });
   if (!Number.isFinite(numericDiscount) || numericDiscount < 0 || numericDiscount > 100) return res.status(400).json({ message: 'Discount must be between 0 and 100.' });
   if (!allowedPaymentTerms.includes(paymentTerm)) return res.status(400).json({ message: 'Select a valid payment term.' });
   if (!Array.isArray(branches) || branches.length > 100 || branches.some((branch) => !branch?.branchName?.trim())) {
@@ -1094,7 +1179,7 @@ app.patch('/api/customers/:id', async (req, res) => {
         customerName: customerName.trim(),
         billingAddress: billingAddress.trim(),
         contact: String(contact || '').trim(),
-        vatNo: vatNo.trim(),
+        tinNo: tinNo.trim(),
         discount: numericDiscount,
         paymentTerm,
         branches: branches.map((branch) => ({
@@ -1102,7 +1187,8 @@ app.patch('/api/customers/:id', async (req, res) => {
           address: String(branch.address || '').trim(),
           contact: String(branch.contact || '').trim()
         }))
-      }
+      },
+      $unset: { vatNo: 1 }
     }, { new: true, runValidators: true });
     if (!customer) return res.status(404).json({ message: 'This customer no longer exists.' });
     res.json(customer);

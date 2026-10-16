@@ -3,7 +3,7 @@ import { FiEdit2, FiMapPin, FiPlus, FiSearch, FiTrash2, FiUsers, FiX } from "rea
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const apiFetch = (input, options = {}) => window.fetch(input, { ...options, credentials: "include" });
-const emptyForm = { customerName: "", billingAddress: "", contact: "", vatNo: "", discount: "0", paymentTerm: "30 DAYS" };
+const emptyForm = { customerName: "", billingAddress: "", contact: "", tinNo: "", discount: "0", paymentTerm: "30 DAYS" };
 const emptyBranch = { branchName: "", address: "", contact: "" };
 
 export default function CustomersPage() {
@@ -81,7 +81,7 @@ export default function CustomersPage() {
       customerName: customer.customerName || "",
       billingAddress: customer.billingAddress || "",
       contact: customer.contact || "",
-      vatNo: customer.vatNo || "",
+      tinNo: customer.tinNo || customer.vatNo || "",
       discount: String(customer.discount ?? 0),
       paymentTerm: customer.paymentTerm || "30 DAYS",
     });
@@ -150,7 +150,7 @@ export default function CustomersPage() {
   const filteredCustomers = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return customers;
-    return customers.filter((customer) => [customer.customerCode, customer.customerName, customer.vatNo, customer.contact, customer.billingAddress]
+    return customers.filter((customer) => [customer.customerCode, customer.customerName, customer.tinNo || customer.vatNo, customer.contact, customer.billingAddress]
       .some((value) => String(value || "").toLowerCase().includes(query)));
   }, [customers, search]);
 
@@ -170,7 +170,7 @@ export default function CustomersPage() {
         <label className="customer-name-field">Customer Name<input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} maxLength="200" required /></label>
         <label className="customer-address-field">Billing Address<textarea value={form.billingAddress} onChange={(event) => setForm((current) => ({ ...current, billingAddress: event.target.value }))} maxLength="500" required /></label>
         <label className="customer-contact-field"><span className="customer-field-label">Contact <small>(optional)</small></span><input value={form.contact} onChange={(event) => setForm((current) => ({ ...current, contact: event.target.value }))} maxLength="80" /></label>
-        <label className="customer-vat-field">VAT No.<input value={form.vatNo} onChange={(event) => setForm((current) => ({ ...current, vatNo: event.target.value }))} maxLength="80" required /></label>
+        <label className="customer-vat-field">TIN No.<input value={form.tinNo} onChange={(event) => setForm((current) => ({ ...current, tinNo: event.target.value }))} maxLength="80" required /></label>
         <label className="customer-discount-field">Discount (%)<input type="number" min="0" max="100" step="0.01" value={form.discount} onChange={(event) => setForm((current) => ({ ...current, discount: event.target.value }))} required /></label>
         <label className="customer-payment-field">Payment Term<select value={form.paymentTerm} onChange={(event) => setForm((current) => ({ ...current, paymentTerm: event.target.value }))}><option>30 DAYS</option><option>45 DAYS</option><option>60 DAYS</option><option>90 DAYS</option></select></label>
       </div>
@@ -187,10 +187,10 @@ export default function CustomersPage() {
       <div className="customer-form-actions"><span>{editingCustomer ? "The customer code cannot be changed." : "The code is assigned automatically when saved."}</span><button type="submit" disabled={loading || saving}>{saving ? "Saving customer..." : editingCustomer ? "Update customer" : "Add customer"}</button></div>
     </form></div>}
     <section className="customer-directory">
-      <div className="customer-directory-heading"><div><h2>Customers</h2><p>{filteredCustomers.length} records shown</p></div><label><FiSearch /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search code, name, VAT..." /></label></div>
+      <div className="customer-directory-heading"><div><h2>Customers</h2><p>{filteredCustomers.length} records shown</p></div><label><FiSearch /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search code, name, TIN..." /></label></div>
       {filteredCustomers.length ? <div className="customer-grid">{filteredCustomers.map((customer) => <article className="customer-card" key={customer._id}>
         <div className="customer-card-header"><div><span>{customer.customerCode}</span><h3>{customer.customerName}</h3></div><div className="customer-card-header-actions"><b>{Number(customer.discount || 0).toLocaleString()}% discount</b><button type="button" onClick={() => openCustomerEdit(customer)} disabled={Boolean(deletingId)}><FiEdit2 /> Edit</button><button type="button" className="customer-delete-button" onClick={() => deleteCustomer(customer)} disabled={Boolean(deletingId)}>{deletingId === customer._id ? "Deleting..." : <><FiTrash2 /> Delete</>}</button></div></div>
-        <div className="customer-card-details"><p><small>Billing address</small>{customer.billingAddress}</p><p><small>Contact</small>{customer.contact || "Not provided"}</p><p><small>VAT No.</small>{customer.vatNo}</p><p><small>Payment term</small>{customer.paymentTerm}</p></div>
+        <div className="customer-card-details"><p><small>Billing address</small>{customer.billingAddress}</p><p><small>Contact</small>{customer.contact || "Not provided"}</p><p><small>TIN No.</small>{customer.tinNo || customer.vatNo}</p><p><small>Payment term</small>{customer.paymentTerm}</p></div>
         <div className="customer-card-branches"><strong><FiMapPin /> Branches ({customer.branches?.length || 0})</strong>{customer.branches?.length ? customer.branches.map((branch) => <div key={branch._id || branch.branchName}><span>{branch.branchName}</span><small>{[branch.address, branch.contact].filter(Boolean).join(" · ") || "No address or contact provided"}</small></div>) : <p>No branches added.</p>}</div>
       </article>)}</div> : <p className="empty-dashboard-state">No customers match this search.</p>}
     </section>
