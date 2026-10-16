@@ -2330,7 +2330,7 @@ function InvoicePreviewModal({ invoice, onClose, onConfirm, confirming = false }
   const isPdf = /\.pdf(?:$|\?)/i.test(invoice.fileName || invoice.url);
   const previewUrl = invoice.viewUrl || invoice.url;
   return <div className="modal-backdrop" onMouseDown={onClose}>
-    <section className="invoice-preview-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+    <section className={`invoice-preview-modal ${onConfirm ? "invoice-preview-modal-fullscreen" : ""}`} role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title" onMouseDown={(event) => event.stopPropagation()}>
       <div className="modal-title"><div><p className="eyebrow">{onConfirm ? "INVOICE PREVIEW" : "UPLOADED INVOICE"}</p><h2 id="invoice-preview-title">{invoice.fileName || "Invoice"}</h2></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close invoice" disabled={confirming}><FiX /></button></div>
       <div className="invoice-preview-canvas">{isPdf ? <iframe src={previewUrl} title={invoice.fileName || "Invoice preview"} /> : <img src={previewUrl} alt={invoice.fileName || "Invoice"} />}</div>
       <div className="invoice-preview-footer">{onConfirm ? <><button type="button" className="invoice-preview-cancel" onClick={onClose} disabled={confirming}>Cancel</button><button type="button" className="invoice-preview-confirm" onClick={onConfirm} disabled={confirming}>{confirming ? "Confirming..." : "Confirm invoice"}</button></> : <a href={previewUrl} target="_blank" rel="noreferrer">Open in new tab</a>}</div>

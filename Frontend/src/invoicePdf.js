@@ -64,18 +64,18 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
   };
 
   const drawCustomerBlock = () => {
-    const customerText = [
-      order.customerCode,
-      order.customerName,
-      order.customerBranchName && order.customerBranchName !== "Billing address" ? `- ${order.customerBranchName}` : "",
-      order.customerAddress ? `- ${order.customerAddress}` : "",
-      hasCustomerTin ? `- TIN NO: ${customerTin}` : "",
-    ].filter(Boolean).join(" ");
+    const customerName = String(order.customerName || "-");
+    const customerAddress = [
+      order.customerBranchName && order.customerBranchName !== "Billing address" ? order.customerBranchName : "",
+      order.customerAddress || "",
+    ].filter(Boolean).join(", ");
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
-    doc.text("Customer", margin, 42);
+    doc.text("Customer", margin, 38);
     doc.setFont("helvetica", "normal");
-    doc.text(doc.splitTextToSize(customerText, 92), 38, 42);
+    doc.text(doc.splitTextToSize(customerName, 92)[0], 38, 38);
+    doc.text(doc.splitTextToSize(customerAddress, 92)[0], 38, 44);
+    if (hasCustomerTin) doc.text(`TIN NO: ${customerTin}`, 38, 50);
 
     doc.setFont("helvetica", "bold");
     doc.text("S/O_INV_DATE", 138, 36);
