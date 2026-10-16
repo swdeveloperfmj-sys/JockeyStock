@@ -33,6 +33,7 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
   const dueDate = new Date(invoiceDate);
   dueDate.setDate(dueDate.getDate() + creditDays);
   const invoiceNumber = invoiceNumberFor(order, invoiceDate);
+  const hasCustomerTin = Boolean(String(order.customerTinNo || order.customerVatNo || "").trim());
 
   const drawHeader = (continuation = false) => {
     doc.setTextColor(20, 20, 20);
@@ -51,9 +52,11 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text(continuation ? "INVOICE - CONTINUED" : "SALES ORDER / INVOICE", 172.5, 18.5, { align: "center" });
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "normal");
-    doc.text(`TIN No: ${COMPANY.tin}`, 172.5, 27, { align: "center" });
+    if (hasCustomerTin) {
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text(`TIN No: ${COMPANY.tin}`, 172.5, 27, { align: "center" });
+    }
   };
 
   const drawCustomerBlock = () => {
@@ -141,15 +144,20 @@ export async function createShipmentInvoicePdf(order, issuedByName = "") {
   doc.text(money(grossAmount), valueX, summaryTop, { align: "right" });
   doc.text(money(discountPercent), valueX, summaryTop + 6, { align: "right" });
   doc.text(money(discountAmount), valueX, summaryTop + 12, { align: "right" });
-  doc.rect(143, summaryTop + 15, 57, 13);
   doc.setFont("helvetica", "bold");
-  doc.text("Net Amount", summaryX, summaryTop + 20);
-  doc.text("VAT +18%", summaryX, summaryTop + 26);
-  doc.text("Sub Total", summaryX, summaryTop + 34);
+  if (hasCustomerTin) {
+    doc.rect(143, summaryTop + 15, 57, 13);
+    doc.text("Net Amount", summaryX, summaryTop + 20);
+    doc.text("VAT +18%", summaryX, summaryTop + 26);
+    doc.setFont("helvetica", "normal");
+    doc.text(money(netAmount), valueX, summaryTop + 20, { align: "right" });
+    doc.text(money(vatAmount), valueX, summaryTop + 26, { align: "right" });
+  }
+  const subTotalOffset = hasCustomerTin ? 34 : 20;
+  doc.setFont("helvetica", "bold");
+  doc.text("Sub Total", summaryX, summaryTop + subTotalOffset);
   doc.setFont("helvetica", "normal");
-  doc.text(money(netAmount), valueX, summaryTop + 20, { align: "right" });
-  doc.text(money(vatAmount), valueX, summaryTop + 26, { align: "right" });
-  doc.text(money(subTotal), valueX, summaryTop + 34, { align: "right" });
+  doc.text(money(subTotal), valueX, summaryTop + subTotalOffset, { align: "right" });
 
   doc.setFont("helvetica", "bold");
   doc.text("Payment Type", 16, summaryTop + 20);
