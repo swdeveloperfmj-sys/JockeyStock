@@ -2218,7 +2218,7 @@ function SalesShipmentCards({ orders, uploadingId, generatingId, onOpenItems, on
   </div>;
 }
 function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [generatingId, setGeneratingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null);
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [uploadingId, setUploadingId] = useState(""), [generatingId, setGeneratingId] = useState(""), [selectedShipment, setSelectedShipment] = useState(null), [invoicePreview, setInvoicePreview] = useState(null), [generatedInvoicePreview, setGeneratedInvoicePreview] = useState(null);
   const lastShipmentTap = useRef({ orderId: "", time: 0 });
   useEffect(() => {
     let active = true;
@@ -2250,15 +2250,35 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) 
     setError("");
     try {
       const generated = await createShipmentInvoicePdf(order, userName);
+      setGeneratedInvoicePreview({ order, generated, previewUrl: URL.createObjectURL(generated.blob) });
+    } catch (requestError) {
+      setError(requestError.message || "Unable to prepare the invoice preview.");
+    } finally {
+      setGeneratingId("");
+    }
+  };
+  const closeGeneratedInvoicePreview = () => {
+    setGeneratedInvoicePreview((current) => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return null;
+    });
+  };
+  const confirmGeneratedInvoice = async () => {
+    if (!generatedInvoicePreview) return;
+    const { order, generated } = generatedInvoicePreview;
+    setGeneratingId(order._id);
+    setError("");
+    try {
       const formData = new FormData();
       formData.append("invoice", new File([generated.blob], generated.fileName, { type: "application/pdf" }));
       const response = await fetch(`${API_URL}/shipments/${order._id}/invoice`, { method: "POST", body: formData });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
       setOrders((items) => items.map((item) => item._id === data._id ? data : item));
+      closeGeneratedInvoicePreview();
       setInvoicePreview({ ...data.invoice, viewUrl: `${API_URL}/shipments/${data._id}/invoice/view` });
     } catch (requestError) {
-      setError(requestError.message || "Unable to generate the invoice.");
+      setError(requestError.message || "Unable to confirm the invoice.");
     } finally {
       setGeneratingId("");
     }
@@ -2303,16 +2323,17 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) 
     {orders.length ? <SalesShipmentCards orders={orders} uploadingId={uploadingId} generatingId={generatingId} onOpenItems={setSelectedShipment} onViewInvoice={viewInvoice} onUploadInvoice={uploadInvoice} onGenerateInvoice={generateInvoice} /> : <p className="empty-dashboard-state">No shipments are ready yet.</p>}
     {selectedShipment && <ShipmentItemsModal order={selectedShipment} onClose={() => setSelectedShipment(null)} />}
     {invoicePreview && <InvoicePreviewModal invoice={invoicePreview} onClose={() => setInvoicePreview(null)} />}
+    {generatedInvoicePreview && <InvoicePreviewModal invoice={{ fileName: generatedInvoicePreview.generated.fileName, url: generatedInvoicePreview.previewUrl }} onClose={closeGeneratedInvoicePreview} onConfirm={confirmGeneratedInvoice} confirming={generatingId === generatedInvoicePreview.order._id} />}
   </section>;
 }
-function InvoicePreviewModal({ invoice, onClose }) {
+function InvoicePreviewModal({ invoice, onClose, onConfirm, confirming = false }) {
   const isPdf = /\.pdf(?:$|\?)/i.test(invoice.fileName || invoice.url);
   const previewUrl = invoice.viewUrl || invoice.url;
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="invoice-preview-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-preview-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><p className="eyebrow">UPLOADED INVOICE</p><h2 id="invoice-preview-title">{invoice.fileName || "Invoice"}</h2></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close invoice"><FiX /></button></div>
+      <div className="modal-title"><div><p className="eyebrow">{onConfirm ? "INVOICE PREVIEW" : "UPLOADED INVOICE"}</p><h2 id="invoice-preview-title">{invoice.fileName || "Invoice"}</h2></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close invoice" disabled={confirming}><FiX /></button></div>
       <div className="invoice-preview-canvas">{isPdf ? <iframe src={previewUrl} title={invoice.fileName || "Invoice preview"} /> : <img src={previewUrl} alt={invoice.fileName || "Invoice"} />}</div>
-      <div className="invoice-preview-footer"><a href={previewUrl} target="_blank" rel="noreferrer">Open in new tab</a></div>
+      <div className="invoice-preview-footer">{onConfirm ? <><button type="button" className="invoice-preview-cancel" onClick={onClose} disabled={confirming}>Cancel</button><button type="button" className="invoice-preview-confirm" onClick={onConfirm} disabled={confirming}>{confirming ? "Confirming..." : "Confirm invoice"}</button></> : <a href={previewUrl} target="_blank" rel="noreferrer">Open in new tab</a>}</div>
     </section>
   </div>;
 }
