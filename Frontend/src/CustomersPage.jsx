@@ -156,7 +156,6 @@ export default function CustomersPage() {
 
   return <section className="customers-page">
     <div className="customers-page-heading">
-      <div><p className="eyebrow">CUSTOMER MASTER</p><h2>Customers</h2><p>Create customer accounts and register their branches.</p></div>
       <div className="customers-page-actions"><span><FiUsers /> {customers.length} customers</span><button type="button" onClick={openNewCustomer}><FiPlus /> Add customer</button></div>
     </div>
     {error && !formOpen && <p className="dashboard-error">{error}</p>}

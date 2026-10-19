@@ -158,13 +158,6 @@ export default function GrnReportPage({ user }) {
 
   return (
     <section className="grn-report-page">
-      <div className="grn-report-title">
-        <div>
-          <p className="eyebrow">INVENTORY &amp; SALES · TRANSACTION INQUIRY</p>
-          <h2>Goods Received Note (GRN)</h2>
-          <p>View saved GRNs and expand a row to inspect its received items.</p>
-        </div>
-      </div>
 
       <form
         className="grn-report-filters"
