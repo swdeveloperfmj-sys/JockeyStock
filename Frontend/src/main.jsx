@@ -431,13 +431,6 @@ function UsersPage() {
   return (
     <section className="users-page">
       <div className="page-title">
-        <div>
-          <p className="eyebrow">SUPER ADMIN</p>
-          <h1>User management</h1>
-          <p className="page-description">
-            Create and manage access for your Jockey Stock team.
-          </p>
-        </div>
         <button className="add-user" onClick={() => setM(null)}>
           <FiUserPlus /> Add user
         </button>
@@ -627,13 +620,6 @@ function LocationsPage() {
   return (
     <section className="users-page">
       <div className="page-title">
-        <div>
-          <p className="eyebrow">SUPER ADMIN</p>
-          <h1>Locations</h1>
-          <p className="page-description">
-            Maintain locations and optional arrival pins.
-          </p>
-        </div>
         <button className="add-user" onClick={() => setModal(null)}>
           <FiPlusCircle /> Add location
         </button>
@@ -779,11 +765,6 @@ function RolesPage() {
   return (
     <section className="users-page">
       <div className="page-title">
-        <div>
-          <p className="eyebrow">SUPER ADMIN</p>
-          <h1>Roles</h1>
-          <p className="page-description">Maintain roles for team members.</p>
-        </div>
         <button className="add-user" onClick={() => openModal()}>
           <FiPlusCircle /> Add role
         </button>
@@ -1695,11 +1676,6 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
     <section className="sales-page">
       <div className="page-title">
         <div>
-          <p className="eyebrow">SALES</p>
-          <h1>{isAdmin ? "Sales history" : "My sales"}</h1>
-          <p className="page-description">
-            Your customer orders and sales totals. Today’s orders can be cancelled.
-          </p>
         </div>
         <strong className="sales-total">
           LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
