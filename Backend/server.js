@@ -18,6 +18,7 @@ import StockUpdate from './models/StockUpdate.js';
 import Counter from './models/Counter.js';
 import GoodsReceivedNote from './models/GoodsReceivedNote.js';
 import Customer from './models/Customer.js';
+import SalesPivotLayout from './models/SalesPivotLayout.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -366,6 +367,67 @@ app.get('/api/orders', async (req, res) => {
     });
   }
   res.json(orders);
+});
+
+app.get('/api/reports/sales-register', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
+  const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
+  const { from, to } = req.query;
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(`${from}T00:00:00.000+05:30`);
+    if (to) filter.createdAt.$lte = new Date(`${to}T23:59:59.999+05:30`);
+  }
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(5000).lean();
+  const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))).filter((id) => mongoose.isValidObjectId(id)))];
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } }).select('_id productCode productName style packingQuantity cartonQuantity gender categoryCode subCategoryCode subSubCategory supplierCode color size costPrice sellingPrice').lean()
+    : [];
+  const productById = new Map(products.map((product) => [String(product._id), product]));
+  orders.forEach((order) => {
+    order.items = order.items.map((item) => ({ ...item, product: productById.get(String(item.productId)) || null }));
+  });
+  res.json(orders);
+});
+
+const salesPivotDimensions = new Set([
+  'Product Code', 'Product Name', 'Style', 'Packing Quantity', 'Carton Quantity',
+  'Location', 'Gender', 'Category', 'SubCategory', 'SubSubCategory', 'Document No',
+  'Customer', 'Supplier', 'SalesPerson', 'Colour', 'Size',
+  'Year', 'Quarter', 'Month', 'Week', 'Day', 'Hour'
+]);
+const salesPivotValues = new Set(['Qty', 'Gross Amount', 'Discount Amount', 'Net Amount', 'Selling Price', 'Cost Price']);
+
+app.get('/api/reports/sales-register/pivot-layouts', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
+  const layouts = await SalesPivotLayout.find({ userId: user._id }).sort({ updatedAt: -1 }).lean();
+  res.json(layouts);
+});
+
+app.post('/api/reports/sales-register/pivot-layouts', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to save sales report layouts.' });
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ message: 'Enter a layout name or remark before saving.' });
+  if (name.length > 100) return res.status(400).json({ message: 'Layout name must be 100 characters or less.' });
+  const cleanList = (value, allowed) => [...new Set((Array.isArray(value) ? value : []).filter((field) => allowed.has(field)))];
+  const rowFields = cleanList(req.body.rowFields, salesPivotDimensions);
+  const columnFields = cleanList(req.body.columnFields, salesPivotDimensions);
+  const reportFields = cleanList(req.body.reportFields, salesPivotDimensions);
+  const valueFields = cleanList(req.body.valueFields, salesPivotValues);
+  const reportValues = Object.fromEntries(Object.entries(req.body.reportValues || {})
+    .filter(([field, value]) => salesPivotDimensions.has(field) && typeof value === 'string'));
+  const layout = await SalesPivotLayout.findOneAndUpdate(
+    { userId: user._id, name },
+    { $set: { rowFields, columnFields, reportFields, valueFields, reportValues } },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+  ).lean();
+  res.json(layout);
 });
 const invoiceUpload = multer({
   storage: multer.memoryStorage(),

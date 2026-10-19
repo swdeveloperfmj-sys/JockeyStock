@@ -43,6 +43,7 @@ import {
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
+import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
@@ -791,6 +792,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     [selectedPackingQuantity, setSelectedPackingQuantity] = useState(""),
     [selectedColor, setSelectedColor] = useState(""),
     [sizeQuantities, setSizeQuantities] = useState({}),
+    [productImagePreview, setProductImagePreview] = useState(null),
     [showOrderItems, setShowOrderItems] = useState(false),
     [showResetConfirm, setShowResetConfirm] = useState(false),
     [error, setError] = useState(""),
@@ -946,6 +948,18 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
   const colorProducts = packingProducts.filter(
     (product) => product.color === selectedColor,
   );
+  const selectedColorImages = Array.from(
+    new Map(
+      colorProducts.flatMap((product) => {
+        const images = Array.isArray(product.images) && product.images.length
+          ? product.images
+          : product.imageUrl
+            ? [{ _id: "legacy", url: product.imageUrl }]
+            : [];
+        return images.map((image) => [image.url, image]);
+      }),
+    ).values(),
+  );
   const styleGroups = Array.from(
     availableProducts.reduce((groups, product) => {
       const style = product.style || product.productName?.split("-")[0] || "OTHER";
@@ -971,15 +985,18 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     setSelectedPackingQuantity("");
     setSelectedColor("");
     setSizeQuantities({});
+    setProductImagePreview(null);
   };
   const selectPacking = (packingQuantity) => {
     setSelectedPackingQuantity(packingQuantity);
     setSelectedColor("");
     setSizeQuantities({});
+    setProductImagePreview(null);
   };
   const selectColor = (color) => {
     setSelectedColor(color);
     setSizeQuantities({});
+    setProductImagePreview(null);
   };
   const addSelectedProduct = (product) => {
     const quantity = Number(sizeQuantities[product._id] || 0);
@@ -1533,8 +1550,17 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
       {selectedColor && (
         <div className="modal-backdrop product-modal-layer size-modal-layer" onMouseDown={() => selectColor("")}>
           <section className="product-selection-modal" role="dialog" aria-modal="true" aria-label="Select sizes" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="modal-title"><div><p className="eyebrow">{selectedStyle} · {selectedPackingQuantity} PACK · {selectedColor}</p><h2>Sizes & pieces</h2></div><button type="button" className="close-modal" onClick={() => selectColor("")} aria-label="Back to colours"><FiX /></button></div>
+            <div className="modal-title"><div><p className="eyebrow">{selectedStyle} · {selectedPackingQuantity} PACK · {selectedColor}</p><h2>Sizes & pieces</h2></div><div className="size-modal-actions">{selectedColorImages.length > 0 && <button type="button" className="size-modal-image-trigger" onClick={() => setProductImagePreview({ images: selectedColorImages, index: 0, name: `${selectedStyle} · ${selectedColor}` })} aria-label="View product image"><img src={selectedColorImages[0].url} alt="" /><span>View image</span></button>}<button type="button" className="close-modal" onClick={() => selectColor("")} aria-label="Back to colours"><FiX /></button></div></div>
             <div className="product-selection-modal-body"><section className="product-selection-step size-selection-step"><div className="product-selection-title"><span>4</span><div><h3>Sizes & pieces</h3><p>Enter pieces for the sizes you need.</p></div></div><div className="size-quantity-list">{colorProducts.map((product) => { const cartItem = cart.find((item) => item.productId === product._id); return <div className="size-quantity-row" key={product._id}><div><strong>{product.size}</strong><small>{product.productName} · {product.openingStock} {product.unit} available{cartItem ? ` · ${cartItem.quantity} in order` : ""}</small></div><label>Pieces<input type="number" min="0" max={product.openingStock} value={sizeQuantities[product._id] ?? cartItem?.quantity ?? ""} onChange={(event) => setSizeQuantities((quantities) => ({ ...quantities, [product._id]: event.target.value }))} /></label></div>; })}</div><button type="button" className="add-all-sizes-button" onClick={addSelectedSizes}>Add selected sizes to order</button></section></div>
+          </section>
+        </div>
+      )}
+      {productImagePreview && (
+        <div className="modal-backdrop product-modal-layer product-image-preview-layer" onMouseDown={() => setProductImagePreview(null)}>
+          <section className="product-image-preview-modal" role="dialog" aria-modal="true" aria-label={`${productImagePreview.name} images`} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="product-image-preview-header"><div><p className="eyebrow">PRODUCT IMAGE</p><h2>{productImagePreview.name}</h2><p className="product-gallery-count">Image {productImagePreview.index + 1} of {productImagePreview.images.length}</p></div><button type="button" className="close-modal" onClick={() => setProductImagePreview(null)} aria-label="Close image preview"><FiX /></button></div>
+            <div className="product-image-preview-canvas">{productImagePreview.images.length > 1 && <button type="button" className="gallery-arrow previous" onClick={() => setProductImagePreview((preview) => ({ ...preview, index: (preview.index - 1 + preview.images.length) % preview.images.length }))} aria-label="Previous image"><FiChevronLeft /></button>}<img src={productImagePreview.images[productImagePreview.index].url} alt={`${productImagePreview.name} ${productImagePreview.index + 1}`} />{productImagePreview.images.length > 1 && <button type="button" className="gallery-arrow next" onClick={() => setProductImagePreview((preview) => ({ ...preview, index: (preview.index + 1) % preview.images.length }))} aria-label="Next image"><FiChevronRight /></button>}</div>
+            {productImagePreview.images.length > 1 && <div className="product-image-gallery-footer"><div className="product-image-thumbnails">{productImagePreview.images.map((image, index) => <button type="button" className={index === productImagePreview.index ? "active" : ""} key={image._id || image.url} onClick={() => setProductImagePreview((preview) => ({ ...preview, index }))} aria-label={`View image ${index + 1}`}><img src={image.url} alt="" /></button>)}</div></div>}
           </section>
         </div>
       )}
@@ -2560,6 +2586,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [timeGreeting, setTimeGreeting] = useState(getTimeGreeting),
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
+    [salesReportsOpen, setSalesReportsOpen] = useState(false),
     [transactionInquiryOpen, setTransactionInquiryOpen] = useState(false),
     [dashboardData, setDashboardData] = useState(null),
     [dashboardError, setDashboardError] = useState(""),
@@ -2866,6 +2893,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Create a goods received note."
             : view === "GRN Report"
               ? "Goods received note report."
+            : view === "Sales Register"
+              ? "Sales register report."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -2918,6 +2947,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <GrnPageNew user={user} />
     ) : view === "GRN Report" && (admin || locationManager) ? (
       <GrnReportPage user={user} />
+    ) : view === "Sales Register" && (admin || locationManager) ? (
+      <SalesRegisterPage />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
@@ -3314,6 +3345,32 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                   </button>
                   {inventorySalesOpen && (
                     <div className="sidebar-submenu sidebar-submenu-deep">
+                      <button
+                        type="button"
+                        className="sidebar-menu-trigger sidebar-submenu-trigger"
+                        aria-expanded={salesReportsOpen}
+                        onClick={() => setSalesReportsOpen((open) => !open)}
+                      >
+                        <span>Sales Reports</span>
+                        <FiChevronDown className={`sidebar-menu-chevron${salesReportsOpen ? " is-open" : ""}`} />
+                      </button>
+                      {salesReportsOpen && (
+                        <div className="sidebar-submenu sidebar-submenu-deep">
+                          <a
+                            className={`sidebar-report-link${view === "Sales Register" ? " active" : ""}`}
+                            href="#"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              setOrderToEdit(null);
+                              setV("Sales Register");
+                              setM(false);
+                            }}
+                          >
+                            <FiFileText />
+                            <span>Sales Register</span>
+                          </a>
+                        </div>
+                      )}
                       <button
                         type="button"
                         className="sidebar-menu-trigger sidebar-submenu-trigger"
