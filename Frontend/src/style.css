@@ -2352,6 +2352,11 @@ td small {
 .pivot-filter-strip label { display: flex; align-items: center; gap: 7px; color: #405b76; font-size: .7rem; font-weight: 700; }
 .pivot-filter-strip select { width: auto; min-width: 120px; min-height: 30px; margin: 0; padding: 4px 26px 4px 8px; border: 1px solid #aebed0; border-radius: 3px; background: #fff; color: #172234; }
 .pivot-result-wrap { min-width: 0; min-height: 0; overflow: auto; padding: 8px; }
+.pivot-start-state { display: grid; min-height: 100%; place-content: center; justify-items: center; padding: 40px 20px; color: #6d8195; text-align: center; }
+.pivot-start-state svg { margin-bottom: 10px; font-size: 1.7rem; color: #4f7da8; }
+.pivot-start-state h3 { margin: 0 0 5px; color: #315473; font-size: .92rem; }
+.pivot-start-state p { margin: 0; font-size: .72rem; }
+.pivot-top-actions button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .pivot-result-table { width: max-content; min-width: 100%; border-collapse: collapse; color: #172234; font-size: .78rem; }
 .pivot-result-table th,
 .pivot-result-table td { min-width: 112px; padding: 7px 9px; border: 1px solid #9db7d2; text-align: right; font-variant-numeric: tabular-nums; }
@@ -2404,7 +2409,13 @@ td small {
 .pivot-report-view .grn-report-table td { border-color: #d6e0ea; background: #fff; color: #172234; }
 .pivot-report-view .grn-report-table tbody tr:hover td { background: #eef6ff; }
 .pivot-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 9px 16px; border-top: 1px solid #aebdcd; background: #e9eef5; }
-.pivot-footer span { overflow: hidden; color: #536a82; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.pivot-footer-context { display: grid; min-width: 0; gap: 2px; }
+.pivot-footer-context span { overflow: hidden; color: #536a82; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.pivot-footer-context small { overflow: hidden; max-width: 440px; color: #2f75b5; font-size: .64rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.pivot-layout-save-controls { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 7px; }
+.pivot-layout-save-controls select,
+.pivot-layout-save-controls input { width: 190px; min-height: 38px; margin: 0; padding: 7px 9px; border: 1px solid #9eb0c3; border-radius: 5px; background: #fff; color: #243c55; font-size: .7rem; }
+.pivot-layout-save-controls input { width: 210px; }
 .pivot-footer button { min-width: 90px; border: 1px solid #9eb0c3; background: linear-gradient(#fff, #dce6f0) !important; color: #243c55 !important; box-shadow: none !important; }
 :root[data-theme="dark"] .sales-register-date-filters input,
 :root[data-theme="dark"] .sales-register-selection select,
@@ -2453,6 +2464,10 @@ td small {
   .pivot-top-actions > button:first-child { font-size: 0; }
   .pivot-top-actions > button:first-child svg { font-size: 1rem; }
   .pivot-footer { position: sticky; bottom: 0; }
+  .pivot-footer { align-items: stretch; flex-direction: column; gap: 7px; }
+  .pivot-layout-save-controls { display: grid; grid-template-columns: 1fr 1fr; }
+  .pivot-layout-save-controls select,
+  .pivot-layout-save-controls input { width: 100%; }
 }
 @media (max-width: 760px) {
   .login-page {

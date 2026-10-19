@@ -191,19 +191,28 @@ function PivotFieldOption({ field, checked, onToggle }) {
 
 function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWorkbook }) {
   const [tab, setTab] = useState("pivot");
-  const [rowFields, setRowFields] = useState(() => {
-    const selectedDimensions = filters
-      .map((filter) => FIELD_BY_KEY[filter.field])
-      .filter((field) => field?.type === "text")
-      .map((field) => field.label)
-      .filter((field, index, list) => PIVOT_DIMENSIONS.includes(field) && list.indexOf(field) === index);
-    const hasDateSelection = Boolean(dates.from || dates.to || filters.some((filter) => filter.field === "date"));
-    return [...selectedDimensions, "Year", "Month", ...(hasDateSelection ? ["Day"] : [])];
-  });
+  const [rowFields, setRowFields] = useState([]);
   const [columnFields, setColumnFields] = useState([]);
-  const [valueFields, setValueFields] = useState(["Qty", "Net Amount"]);
+  const [valueFields, setValueFields] = useState([]);
   const [reportFields, setReportFields] = useState([]);
   const [reportValues, setReportValues] = useState({});
+  const [savedLayouts, setSavedLayouts] = useState([]);
+  const [selectedLayoutId, setSelectedLayoutId] = useState("");
+  const [layoutName, setLayoutName] = useState("");
+  const [layoutStatus, setLayoutStatus] = useState("");
+  const [savingLayout, setSavingLayout] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/reports/sales-register/pivot-layouts`, { credentials: "include" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Could not load saved pivot layouts.");
+        if (active) setSavedLayouts(data);
+      })
+      .catch((loadError) => { if (active) setLayoutStatus(loadError.message); });
+    return () => { active = false; };
+  }, []);
 
   const reportOptions = useMemo(() => Object.fromEntries(reportFields.map((field) => [
     field,
@@ -233,6 +242,7 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
   }, [columnFields, reportFields, reportValues, rowFields, rows, valueFields]);
 
   const displayColumns = columnFields.length ? pivotData.columns : [""];
+  const isPivotReady = valueFields.length > 0 && (rowFields.length > 0 || columnFields.length > 0);
 
   const isSelected = (field) => rowFields.includes(field)
     || columnFields.includes(field)
@@ -302,6 +312,47 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
   const remove = (setter) => (field) => setter((current) => current.filter((item) => item !== field));
   const exportPivot = () => exportWorkbook({ pivotRows: pivotData.rows, pivotTotals: pivotData.totals, rowFields, columnFields, displayColumns, valueFields });
 
+  const loadSavedLayout = (layoutId) => {
+    setSelectedLayoutId(layoutId);
+    const layout = savedLayouts.find((item) => item._id === layoutId);
+    if (!layout) return;
+    setRowFields(layout.rowFields || []);
+    setColumnFields(layout.columnFields || []);
+    setValueFields(layout.valueFields || []);
+    setReportFields(layout.reportFields || []);
+    setReportValues(layout.reportValues || {});
+    setLayoutName(layout.name || "");
+    setLayoutStatus(`Loaded “${layout.name}”.`);
+  };
+
+  const saveLayout = async () => {
+    const name = layoutName.trim();
+    if (!name) {
+      setLayoutStatus("Enter a layout name or remark before saving.");
+      return;
+    }
+    setSavingLayout(true);
+    setLayoutStatus("");
+    try {
+      const response = await fetch(`${API_URL}/reports/sales-register/pivot-layouts`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, rowFields, columnFields, valueFields, reportFields, reportValues }),
+      });
+      const saved = await response.json();
+      if (!response.ok) throw new Error(saved.message || "Could not save this pivot layout.");
+      setSavedLayouts((current) => [saved, ...current.filter((item) => item._id !== saved._id && item.name !== saved.name)]);
+      setSelectedLayoutId(saved._id);
+      setLayoutName(saved.name);
+      setLayoutStatus(`Saved “${saved.name}”.`);
+    } catch (saveError) {
+      setLayoutStatus(saveError.message);
+    } finally {
+      setSavingLayout(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop pivot-fullscreen" role="dialog" aria-modal="true" aria-label="Sales register pivot designer">
       <div className="pivot-designer">
@@ -311,7 +362,7 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
             <h2>Pivot Designer</h2>
           </div>
           <div className="pivot-top-actions">
-            <button type="button" onClick={exportPivot}><FiDownload /> Export Pivot XLSX</button>
+            <button type="button" onClick={exportPivot} disabled={!isPivotReady}><FiDownload /> Export Pivot XLSX</button>
             <button className="pivot-close" type="button" onClick={onClose}><FiX /></button>
           </div>
         </header>
@@ -352,7 +403,13 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
               </div>
 
               <div className="pivot-result-wrap">
-                <table className="pivot-result-table">
+                {!isPivotReady ? (
+                  <div className="pivot-start-state">
+                    <FiGrid />
+                    <h3>Build your pivot view</h3>
+                    <p>Tick or drag at least one label field and one value field.</p>
+                  </div>
+                ) : <table className="pivot-result-table">
                   <thead>
                     <tr>
                       {rowFields.map((field) => (
@@ -411,7 +468,7 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
                       {displayColumns.flatMap((column) => valueFields.map((field) => <th key={`${column}-${field}-total`}>{displayColumns.length === 1 ? money(pivotData.totals[field]) : ""}</th>))}
                     </tr>
                   </tfoot>
-                </table>
+                </table>}
               </div>
             </main>
 
@@ -474,8 +531,29 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
         )}
 
         <footer className="pivot-footer">
-          <span>Date From: {dates.from || "All"} &nbsp; To: {dates.to || "All"} &nbsp; · &nbsp; {filters.length} additional filter{filters.length === 1 ? "" : "s"}</span>
-          <button type="button" onClick={onClose}>Close</button>
+          <div className="pivot-footer-context">
+            <span>Date From: {dates.from || "All"} &nbsp; To: {dates.to || "All"} &nbsp; · &nbsp; {filters.length} additional filter{filters.length === 1 ? "" : "s"}</span>
+            {layoutStatus && <small>{layoutStatus}</small>}
+          </div>
+          <div className="pivot-layout-save-controls">
+            <select value={selectedLayoutId} onChange={(event) => loadSavedLayout(event.target.value)} aria-label="Saved pivot layouts">
+              <option value="">Load saved layout…</option>
+              {savedLayouts.map((layout) => <option value={layout._id} key={layout._id}>{layout.name}</option>)}
+            </select>
+            <input
+              type="text"
+              maxLength="100"
+              value={layoutName}
+              placeholder="Layout name / remark"
+              onChange={(event) => {
+                setLayoutName(event.target.value);
+                setSelectedLayoutId("");
+                setLayoutStatus("");
+              }}
+            />
+            <button type="button" onClick={saveLayout} disabled={savingLayout}>{savingLayout ? "Saving…" : "Save Layout"}</button>
+            <button type="button" onClick={onClose}>Close</button>
+          </div>
         </footer>
       </div>
     </div>
