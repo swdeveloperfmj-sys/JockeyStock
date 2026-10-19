@@ -2414,8 +2414,10 @@ td small {
 .pivot-footer-context small { overflow: hidden; max-width: 440px; color: #2f75b5; font-size: .64rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .pivot-layout-save-controls { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 7px; }
 .pivot-layout-save-controls select,
-.pivot-layout-save-controls input { width: 190px; min-height: 38px; margin: 0; padding: 7px 9px; border: 1px solid #9eb0c3; border-radius: 5px; background: #fff; color: #243c55; font-size: .7rem; }
+.pivot-layout-save-controls input { width: 190px; min-height: 38px; margin: 0; padding: 7px 9px; border: 1px solid #9eb0c3 !important; border-radius: 5px; background: #fff !important; color: #243c55 !important; -webkit-text-fill-color: #243c55 !important; color-scheme: light; font-size: .7rem; opacity: 1; }
 .pivot-layout-save-controls input { width: 210px; }
+.pivot-layout-save-controls input::placeholder { color: #788b9e !important; -webkit-text-fill-color: #788b9e !important; opacity: 1; }
+.pivot-layout-save-controls select option { background: #fff; color: #243c55; }
 .pivot-footer button { min-width: 90px; border: 1px solid #9eb0c3; background: linear-gradient(#fff, #dce6f0) !important; color: #243c55 !important; box-shadow: none !important; }
 :root[data-theme="dark"] .sales-register-date-filters input,
 :root[data-theme="dark"] .sales-register-selection select,
