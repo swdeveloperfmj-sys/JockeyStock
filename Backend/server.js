@@ -274,7 +274,7 @@ app.post('/api/auth/login', async (req, res) => {
     req.session.save((saveError) => {
       if (saveError) return res.status(500).json({ message: 'Unable to save the login session.' });
       return res.json({
-        user: { id: user._id, name: user.name, username: user.username, email: user.email, location: user.location, role: user.role },
+        user: { id: user._id, name: user.name, username: user.username, email: user.email, location: user.location, role: user.role, sidebarPermissions: user.sidebarPermissions },
         expiresAt: Date.now() + sessionMaxAge
       });
     });
@@ -923,25 +923,38 @@ app.patch('/api/orders/:id', async (req, res) => {
   }
 });
 
-const userFields = ['name', 'username', 'email', 'contactNumber', 'location', 'role'];
-const safeUser = (user) => ({ id: user._id, name: user.name, username: user.username, email: user.email, contactNumber: user.contactNumber, location: user.location, role: user.role });
+const allowedSidebarPermissions = new Set([
+  'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'Sales', 'Customers',
+  'Sales Order Series', 'Users', 'Locations', 'Roles', 'Stock Update',
+  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report'
+]);
+const normalizeSidebarPermissions = (value) => Array.isArray(value)
+  ? [...new Set(value.map(String).filter((permission) => allowedSidebarPermissions.has(permission)))]
+  : undefined;
+const userFields = ['name', 'username', 'email', 'contactNumber', 'location', 'role', 'sidebarPermissions'];
+const safeUser = (user) => ({ id: user._id, name: user.name, username: user.username, email: user.email, contactNumber: user.contactNumber, location: user.location, role: user.role, sidebarPermissions: user.sidebarPermissions });
 const duplicateUserMessage = (error) => {
   if (error?.keyPattern?.username) return 'Username already exists.';
   if (error?.keyPattern?.email) return 'Email already exists.';
   return 'Username or email already exists.';
 };
 
-app.get('/api/users', async (_req, res) => {
+app.get('/api/users', async (req, res) => {
+  const actor = await currentUser(req);
+  if (actor?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admin can manage users.' });
   const users = await User.find().sort({ createdAt: -1 });
   res.json(users.map(safeUser));
 });
 
 app.post('/api/users', async (req, res) => {
+  const actor = await currentUser(req);
+  if (actor?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admin can create users.' });
   const { name, username, password, confirmPassword, role } = req.body;
   if (!name || !username || !password || !role || !req.body.location) return res.status(400).json({ message: 'Name, username, password, role, and location are required.' });
   if (password !== confirmPassword) return res.status(400).json({ message: 'Passwords do not match.' });
   try {
     const data = Object.fromEntries(userFields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+    if (data.sidebarPermissions !== undefined) data.sidebarPermissions = normalizeSidebarPermissions(data.sidebarPermissions);
     if (!data.email) delete data.email;
     const user = await User.create({ ...data, password: await bcrypt.hash(password, 12) });
     res.status(201).json(safeUser(user));
@@ -951,7 +964,10 @@ app.post('/api/users', async (req, res) => {
 });
 
 app.patch('/api/users/:id', async (req, res) => {
+  const actor = await currentUser(req);
+  if (actor?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admin can edit users.' });
   const updates = Object.fromEntries(userFields.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
+  if (updates.sidebarPermissions !== undefined) updates.sidebarPermissions = normalizeSidebarPermissions(updates.sidebarPermissions);
   if (!updates.email) delete updates.email;
   if (req.body.password) {
     if (req.body.password !== req.body.confirmPassword) return res.status(400).json({ message: 'Passwords do not match.' });
@@ -965,6 +981,8 @@ app.patch('/api/users/:id', async (req, res) => {
 });
 
 app.delete('/api/users/:id', async (req, res) => {
+  const actor = await currentUser(req);
+  if (actor?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admin can delete users.' });
   const user = await User.findByIdAndDelete(req.params.id);
   if (!user) return res.status(404).json({ message: 'User not found.' });
   res.status(204).end();

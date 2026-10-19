@@ -11,7 +11,8 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true, select: false },
     contactNumber: { type: String, trim: true, default: '' },
     location: { type: String, required: true, trim: true },
-    role: { type: String, required: true, trim: true }
+    role: { type: String, required: true, trim: true },
+    sidebarPermissions: { type: [String], default: undefined }
   },
   { timestamps: true }
 );
