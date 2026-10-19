@@ -2283,6 +2283,46 @@ td small {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+/* Sales register report */
+.sales-register-page { width: 100%; }
+.sales-register-date-filters, .sales-register-selection { display: grid; grid-template-columns: minmax(150px, .6fr) minmax(150px, .6fr) auto; gap: 12px; align-items: end; margin: 18px 0; }
+.sales-register-selection.audit-filter { grid-template-columns: repeat(4, minmax(150px, 1fr)) auto; }
+.sales-register-date-filters label, .sales-register-selection label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 700; }
+.sales-register-date-filters input, .sales-register-selection select { min-height: 42px; width: 100%; margin: 0; }
+.sales-register-date-filters button, .sales-register-selection button { min-height: 42px; margin: 0; white-space: nowrap; }
+.sales-register-selection-list { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 18px; }
+.sales-register-selection-list > strong { color: var(--muted); font-size: .75rem; }
+.sales-register-selection-list span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px 5px 9px; border-radius: 999px; background: color-mix(in srgb, var(--cream) 80%, var(--surface)); font-size: .72rem; font-weight: 700; }
+.sales-register-selection-list button { display: grid; width: 20px; height: 20px; min-height: 20px; margin: 0; padding: 0; place-items: center; border-radius: 50%; background: transparent !important; color: var(--ink) !important; box-shadow: none !important; }
+:root[data-theme="dark"] .sales-register-date-filters input,
+:root[data-theme="dark"] .sales-register-selection select,
+:root[data-theme="dark"] .sales-register-selection input {
+  border-color: #465267;
+  background: #0d121b;
+  color: #f5f7fb;
+  -webkit-text-fill-color: #f5f7fb;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .sales-register-selection select option {
+  background: #151b26;
+  color: #f5f7fb;
+}
+:root[data-theme="dark"] .sales-register-date-filters input::placeholder,
+:root[data-theme="dark"] .sales-register-selection input::placeholder { color: #9eabbf; opacity: 1; }
+.sales-register-filters { display: grid; grid-template-columns: repeat(2, minmax(140px, .65fr)) minmax(210px, 1.3fr) minmax(140px, .6fr) auto auto; gap: 10px; align-items: end; margin: 20px 0; }
+.sales-register-filters label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 700; }
+.sales-register-filters input, .sales-register-filters select { width: 100%; min-height: 42px; margin: 0; }
+.sales-register-filters button, .sales-register-actions button { min-height: 42px; margin: 0; white-space: nowrap; }
+.sales-register-actions { display: flex; justify-content: flex-end; margin: 0 0 12px; }
+.sales-register-actions button { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 9px 13px; }
+.sales-register-table td small { display: block; margin-top: 3px; color: var(--muted); }
+.sales-register-status { display: inline-flex; padding: 4px 7px; border-radius: 999px; background: rgba(238, 151, 47, .16); color: #9b5c10; font-size: .65rem; font-weight: 800; letter-spacing: .03em; }
+.sales-register-status.completed { background: rgba(45, 157, 120, .15); color: #167556; }
+.sales-register-status.cancelled { background: rgba(215, 70, 70, .13); color: #b33131; }
+.sales-register-status.held { background: rgba(115, 98, 194, .14); color: #6653af; }
+@media (max-width: 1050px) { .sales-register-filters { grid-template-columns: 1fr 1fr; } .sales-register-filters input { grid-column: 1 / -1; } }
+@media (max-width: 850px) { .sales-register-selection.audit-filter { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .sales-register-date-filters, .sales-register-selection, .sales-register-selection.audit-filter { grid-template-columns: 1fr; } .sales-register-date-filters button, .sales-register-selection button { width: 100%; } }
 @media (max-width: 760px) {
   .login-page {
     grid-template-columns: 1fr;

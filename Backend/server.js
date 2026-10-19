@@ -367,6 +367,29 @@ app.get('/api/orders', async (req, res) => {
   }
   res.json(orders);
 });
+
+app.get('/api/reports/sales-register', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
+  const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
+  const { from, to } = req.query;
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(`${from}T00:00:00.000+05:30`);
+    if (to) filter.createdAt.$lte = new Date(`${to}T23:59:59.999+05:30`);
+  }
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(5000).lean();
+  const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))).filter((id) => mongoose.isValidObjectId(id)))];
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } }).select('_id productCode productName gender categoryCode subCategoryCode subSubCategory supplierCode color size costPrice sellingPrice').lean()
+    : [];
+  const productById = new Map(products.map((product) => [String(product._id), product]));
+  orders.forEach((order) => {
+    order.items = order.items.map((item) => ({ ...item, product: productById.get(String(item.productId)) || null }));
+  });
+  res.json(orders);
+});
 const invoiceUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },

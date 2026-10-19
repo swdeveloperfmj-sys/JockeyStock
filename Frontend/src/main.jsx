@@ -43,6 +43,7 @@ import {
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
+import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
@@ -2585,6 +2586,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [timeGreeting, setTimeGreeting] = useState(getTimeGreeting),
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
+    [salesReportsOpen, setSalesReportsOpen] = useState(false),
     [transactionInquiryOpen, setTransactionInquiryOpen] = useState(false),
     [dashboardData, setDashboardData] = useState(null),
     [dashboardError, setDashboardError] = useState(""),
@@ -2891,6 +2893,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Create a goods received note."
             : view === "GRN Report"
               ? "Goods received note report."
+            : view === "Sales Register"
+              ? "Sales register report."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -2943,6 +2947,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <GrnPageNew user={user} />
     ) : view === "GRN Report" && (admin || locationManager) ? (
       <GrnReportPage user={user} />
+    ) : view === "Sales Register" && (admin || locationManager) ? (
+      <SalesRegisterPage />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
@@ -3339,6 +3345,32 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                   </button>
                   {inventorySalesOpen && (
                     <div className="sidebar-submenu sidebar-submenu-deep">
+                      <button
+                        type="button"
+                        className="sidebar-menu-trigger sidebar-submenu-trigger"
+                        aria-expanded={salesReportsOpen}
+                        onClick={() => setSalesReportsOpen((open) => !open)}
+                      >
+                        <span>Sales Reports</span>
+                        <FiChevronDown className={`sidebar-menu-chevron${salesReportsOpen ? " is-open" : ""}`} />
+                      </button>
+                      {salesReportsOpen && (
+                        <div className="sidebar-submenu sidebar-submenu-deep">
+                          <a
+                            className={`sidebar-report-link${view === "Sales Register" ? " active" : ""}`}
+                            href="#"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              setOrderToEdit(null);
+                              setV("Sales Register");
+                              setM(false);
+                            }}
+                          >
+                            <FiFileText />
+                            <span>Sales Register</span>
+                          </a>
+                        </div>
+                      )}
                       <button
                         type="button"
                         className="sidebar-menu-trigger sidebar-submenu-trigger"
