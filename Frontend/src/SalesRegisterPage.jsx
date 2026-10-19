@@ -14,6 +14,9 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const FIELDS = [
   { key: "productCode", label: "Product Code", type: "text" },
   { key: "productName", label: "Product Name", type: "text" },
+  { key: "style", label: "Style", type: "text" },
+  { key: "packingQuantity", label: "Packing Quantity", type: "text" },
+  { key: "cartonQuantity", label: "Carton Quantity", type: "text" },
   { key: "location", label: "Location", type: "text" },
   { key: "gender", label: "Gender", type: "text" },
   { key: "category", label: "Category", type: "text" },
@@ -68,6 +71,9 @@ function rowFromOrder(order, item) {
     id: `${order._id || order.orderNumber}-${item.productId || item.productCode}-${item.size || ""}`,
     productCode: item.productCode || product.productCode || "",
     productName: item.productName || product.productName || "",
+    style: item.style || product.style || "",
+    packingQuantity: product.packingQuantity || "",
+    cartonQuantity: product.cartonQuantity || "",
     location: order.location || product.plant || "",
     gender: product.gender || "",
     category: product.categoryCode || "",
@@ -130,13 +136,27 @@ function pivotValue(row, label) {
   return row.costPrice;
 }
 
-function DropZone({ title, items, onDrop, onRemove, children }) {
+function DropZone({ title, items, onDrop, onDropItem, onRemove, children }) {
   return (
-    <section className="pivot-zone" onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
+    <section className={`pivot-zone ${title === "Row Labels" ? "pivot-row-label-zone" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={onDrop}>
       <h4>{title}</h4>
       <div className="pivot-zone-content">
         {items.map((item) => (
-          <span className="pivot-field-chip" key={item}>
+          <span
+            className="pivot-field-chip"
+            draggable
+            key={item}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", item);
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onDropItem(event, item);
+            }}
+          >
             {item}
             <button type="button" onClick={() => onRemove(item)} aria-label={`Remove ${item}`}><FiX /></button>
           </span>
@@ -148,9 +168,38 @@ function DropZone({ title, items, onDrop, onRemove, children }) {
   );
 }
 
-function PivotDesigner({ rows, filters, dates, onClose, exportWorkbook }) {
+function PivotFieldOption({ field, checked, onToggle }) {
+  return (
+    <label
+      className="pivot-field-option"
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", field);
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onToggle(field, event.target.checked)}
+        onDragStart={(event) => event.stopPropagation()}
+      />
+      <span>{field}</span>
+    </label>
+  );
+}
+
+function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWorkbook }) {
   const [tab, setTab] = useState("pivot");
-  const [rowFields, setRowFields] = useState(["Year", "Month"]);
+  const [rowFields, setRowFields] = useState(() => {
+    const selectedDimensions = filters
+      .map((filter) => FIELD_BY_KEY[filter.field])
+      .filter((field) => field?.type === "text")
+      .map((field) => field.label)
+      .filter((field, index, list) => PIVOT_DIMENSIONS.includes(field) && list.indexOf(field) === index);
+    const hasDateSelection = Boolean(dates.from || dates.to || filters.some((filter) => filter.field === "date"));
+    return [...selectedDimensions, "Year", "Month", ...(hasDateSelection ? ["Day"] : [])];
+  });
   const [columnFields, setColumnFields] = useState([]);
   const [valueFields, setValueFields] = useState(["Qty", "Net Amount"]);
   const [reportFields, setReportFields] = useState([]);
@@ -185,19 +234,73 @@ function PivotDesigner({ rows, filters, dates, onClose, exportWorkbook }) {
 
   const displayColumns = columnFields.length ? pivotData.columns : [""];
 
-  const drop = (setter, allowed) => (event) => {
-    event.preventDefault();
-    const field = event.dataTransfer.getData("text/plain");
-    if (!field || !allowed.includes(field)) return;
+  const isSelected = (field) => rowFields.includes(field)
+    || columnFields.includes(field)
+    || reportFields.includes(field)
+    || valueFields.includes(field);
+
+  const removeEverywhere = (field) => {
     setRowFields((current) => current.filter((item) => item !== field));
     setColumnFields((current) => current.filter((item) => item !== field));
     setReportFields((current) => current.filter((item) => item !== field));
     setValueFields((current) => current.filter((item) => item !== field));
-    setter((current) => current.includes(field) ? current : [...current, field]);
+    setReportValues((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const toggleField = (field, checked) => {
+    if (!checked) {
+      removeEverywhere(field);
+      return;
+    }
+    if (VALUE_FIELDS.includes(field)) {
+      setValueFields((current) => current.includes(field) ? current : [...current, field]);
+    } else {
+      setRowFields((current) => current.includes(field) ? current : [...current, field]);
+    }
+  };
+
+  const positionField = (current, field, target) => {
+    if (!target || target === field) {
+      const withoutField = current.filter((item) => item !== field);
+      return target === field ? current : [...withoutField, field];
+    }
+    const fromIndex = current.indexOf(field);
+    const targetIndex = current.indexOf(target);
+    if (fromIndex >= 0 && targetIndex >= 0) {
+      const swapped = [...current];
+      [swapped[fromIndex], swapped[targetIndex]] = [swapped[targetIndex], swapped[fromIndex]];
+      return swapped;
+    }
+    const withoutField = current.filter((item) => item !== field);
+    const insertAt = withoutField.indexOf(target);
+    if (insertAt < 0) return [...withoutField, field];
+    withoutField.splice(insertAt, 0, field);
+    return withoutField;
+  };
+
+  const moveField = (event, destination, allowed, target = null) => {
+    event.preventDefault();
+    const field = event.dataTransfer.getData("text/plain");
+    if (!field || !allowed.includes(field)) return;
+    setRowFields((current) => destination === "rows" ? positionField(current, field, target) : current.filter((item) => item !== field));
+    setColumnFields((current) => destination === "columns" ? positionField(current, field, target) : current.filter((item) => item !== field));
+    setReportFields((current) => destination === "filters" ? positionField(current, field, target) : current.filter((item) => item !== field));
+    setValueFields((current) => destination === "values" ? positionField(current, field, target) : current.filter((item) => item !== field));
+    if (destination !== "filters") {
+      setReportValues((current) => {
+        const next = { ...current };
+        delete next[field];
+        return next;
+      });
+    }
   };
 
   const remove = (setter) => (field) => setter((current) => current.filter((item) => item !== field));
-  const exportPivot = () => exportWorkbook({ pivotRows: pivotData.rows, rowFields, columnFields, displayColumns, valueFields });
+  const exportPivot = () => exportWorkbook({ pivotRows: pivotData.rows, pivotTotals: pivotData.totals, rowFields, columnFields, displayColumns, valueFields });
 
   return (
     <div className="modal-backdrop pivot-fullscreen" role="dialog" aria-modal="true" aria-label="Sales register pivot designer">
@@ -227,27 +330,68 @@ function PivotDesigner({ rows, filters, dates, onClose, exportWorkbook }) {
           <div className="pivot-workspace">
             <main className="pivot-canvas">
               <div className="pivot-filter-strip">
-                <strong><FiFilter /> Report filters</strong>
-                {reportFields.map((field) => (
-                  <label key={field}>{field}
-                    <select value={reportValues[field] || ""} onChange={(event) => setReportValues((current) => ({ ...current, [field]: event.target.value }))}>
-                      <option value="">All</option>
-                      {(reportOptions[field] || []).map((option) => <option key={option}>{option}</option>)}
-                    </select>
-                  </label>
-                ))}
-                {!reportFields.length && <small>Drag a field into Report Filter to filter this pivot.</small>}
+                <div className="pivot-base-filters">
+                  <strong><FiFilter /> Applied selections</strong>
+                  {filterLabels.length
+                    ? filterLabels.map((label) => <span key={label}>{label}</span>)
+                    : <small>All sales register records</small>}
+                  <b>{rows.length} lines</b>
+                </div>
+                <div className="pivot-live-filters">
+                  <strong>Pivot filters</strong>
+                  {reportFields.map((field) => (
+                    <label key={field}>{field}
+                      <select value={reportValues[field] || ""} onChange={(event) => setReportValues((current) => ({ ...current, [field]: event.target.value }))}>
+                        <option value="">All</option>
+                        {(reportOptions[field] || []).map((option) => <option key={option}>{option}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                  {!reportFields.length && <small>Drag another field into Report Filter for additional pivot filtering.</small>}
+                </div>
               </div>
 
               <div className="pivot-result-wrap">
                 <table className="pivot-result-table">
                   <thead>
                     <tr>
-                      {rowFields.map((field) => <th rowSpan="2" key={field}>{field}</th>)}
-                      {displayColumns.map((column) => <th colSpan={valueFields.length || 1} key={column || "values"}>{column || "Values"}</th>)}
+                      {rowFields.map((field) => (
+                        <th
+                          className="pivot-draggable-header"
+                          draggable
+                          rowSpan="2"
+                          key={field}
+                          title="Drag this field to another area"
+                          onDragStart={(event) => event.dataTransfer.setData("text/plain", field)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => moveField(event, "rows", PIVOT_DIMENSIONS, field)}
+                        >{field}</th>
+                      ))}
+                      {displayColumns.map((column) => (
+                        <th
+                          className={columnFields.length ? "pivot-draggable-header" : ""}
+                          draggable={columnFields.length > 0}
+                          colSpan={valueFields.length || 1}
+                          key={column || "values"}
+                          title={columnFields.length ? "Drag this column field to another area" : ""}
+                          onDragStart={(event) => columnFields.length && event.dataTransfer.setData("text/plain", columnFields[0])}
+                          onDragOver={(event) => columnFields.length && event.preventDefault()}
+                          onDrop={(event) => columnFields.length && moveField(event, "columns", PIVOT_DIMENSIONS, columnFields[0])}
+                        >{columnFields.length ? `${columnFields.join(" / ")}: ${column}` : "Values"}</th>
+                      ))}
                     </tr>
                     <tr>
-                      {displayColumns.flatMap((column) => valueFields.map((field) => <th key={`${column}-${field}`}>Sum of {field}</th>))}
+                      {displayColumns.flatMap((column) => valueFields.map((field) => (
+                        <th
+                          className="pivot-draggable-header"
+                          draggable
+                          key={`${column}-${field}`}
+                          title="Drag this value to another area"
+                          onDragStart={(event) => event.dataTransfer.setData("text/plain", field)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => moveField(event, "values", VALUE_FIELDS, field)}
+                        >Sum of {field}</th>
+                      )))}
                     </tr>
                   </thead>
                   <tbody>
@@ -274,26 +418,20 @@ function PivotDesigner({ rows, filters, dates, onClose, exportWorkbook }) {
             <aside className="pivot-builder">
               <section className="pivot-fields-panel">
                 <h3>Choose fields</h3>
-                <p>Drag any field into an area below.</p>
+                <p>Tick a field to add it, or drag it into an area below.</p>
                 <div className="pivot-fields-list">
                   {PIVOT_DIMENSIONS.filter((field) => !DATE_PARTS.includes(field)).map((field) => (
-                    <button draggable type="button" key={field} onDragStart={(event) => event.dataTransfer.setData("text/plain", field)}>
-                      <span className="pivot-check" /> {field}
-                    </button>
+                    <PivotFieldOption key={field} field={field} checked={isSelected(field)} onToggle={toggleField} />
                   ))}
                   <details open>
                     <summary>Date</summary>
                     {DATE_PARTS.map((field) => (
-                      <button draggable type="button" key={field} onDragStart={(event) => event.dataTransfer.setData("text/plain", field)}>
-                        <span className={(rowFields.includes(field) || columnFields.includes(field) || reportFields.includes(field)) ? "pivot-check checked" : "pivot-check"} /> {field}
-                      </button>
+                      <PivotFieldOption key={field} field={field} checked={isSelected(field)} onToggle={toggleField} />
                     ))}
                   </details>
                   <div className="pivot-measure-heading">Measures</div>
                   {VALUE_FIELDS.map((field) => (
-                    <button draggable type="button" key={field} onDragStart={(event) => event.dataTransfer.setData("text/plain", field)}>
-                      <span className={valueFields.includes(field) ? "pivot-check checked" : "pivot-check"} /> {field}
-                    </button>
+                    <PivotFieldOption key={field} field={field} checked={isSelected(field)} onToggle={toggleField} />
                   ))}
                 </div>
               </section>
@@ -301,10 +439,34 @@ function PivotDesigner({ rows, filters, dates, onClose, exportWorkbook }) {
               <section className="pivot-zones-panel">
                 <h3>Drag fields between areas below</h3>
                 <div className="pivot-zones-grid">
-                  <DropZone title="Report Filter" items={reportFields} onDrop={drop(setReportFields, PIVOT_DIMENSIONS)} onRemove={remove(setReportFields)} />
-                  <DropZone title="Column Labels" items={columnFields} onDrop={drop(setColumnFields, PIVOT_DIMENSIONS)} onRemove={remove(setColumnFields)} />
-                  <DropZone title="Row Labels" items={rowFields} onDrop={drop(setRowFields, PIVOT_DIMENSIONS)} onRemove={remove(setRowFields)} />
-                  <DropZone title="Σ Values" items={valueFields} onDrop={drop(setValueFields, VALUE_FIELDS)} onRemove={remove(setValueFields)} />
+                  <DropZone
+                    title="Report Filter"
+                    items={reportFields}
+                    onDrop={(event) => moveField(event, "filters", PIVOT_DIMENSIONS)}
+                    onDropItem={(event, target) => moveField(event, "filters", PIVOT_DIMENSIONS, target)}
+                    onRemove={remove(setReportFields)}
+                  />
+                  <DropZone
+                    title="Column Labels"
+                    items={columnFields}
+                    onDrop={(event) => moveField(event, "columns", PIVOT_DIMENSIONS)}
+                    onDropItem={(event, target) => moveField(event, "columns", PIVOT_DIMENSIONS, target)}
+                    onRemove={remove(setColumnFields)}
+                  />
+                  <DropZone
+                    title="Row Labels"
+                    items={rowFields}
+                    onDrop={(event) => moveField(event, "rows", PIVOT_DIMENSIONS)}
+                    onDropItem={(event, target) => moveField(event, "rows", PIVOT_DIMENSIONS, target)}
+                    onRemove={remove(setRowFields)}
+                  />
+                  <DropZone
+                    title="Σ Values"
+                    items={valueFields}
+                    onDrop={(event) => moveField(event, "values", VALUE_FIELDS)}
+                    onDropItem={(event, target) => moveField(event, "values", VALUE_FIELDS, target)}
+                    onRemove={remove(setValueFields)}
+                  />
                 </div>
               </section>
             </aside>
@@ -446,20 +608,38 @@ export default function SalesRegisterPage() {
         sheet.addRow(FIELDS.map((field) => field.type === "date" ? new Date(row[field.key]) : row[field.key]));
       });
       const sum = documentRows.reduce((result, row) => ({ qty: result.qty + row.qty, gross: result.gross + row.gross, discount: result.discount + row.discount, net: result.net + row.net }), { qty: 0, gross: 0, discount: 0, net: 0 });
-      const discountRow = sheet.addRow(["", "Subtotal Discount", "", "", "", "", "", documentNo, "", "", "", "", "", "", "", "", sum.discount, "", "", ""]);
+      const discountValues = Array(FIELDS.length).fill("");
+      discountValues[1] = "Subtotal Discount";
+      discountValues[FIELDS.findIndex((field) => field.key === "documentNo")] = documentNo;
+      discountValues[FIELDS.findIndex((field) => field.key === "discount")] = sum.discount;
+      const discountRow = sheet.addRow(discountValues);
       discountRow.font = { italic: true, bold: true };
-      const totalRow = sheet.addRow(["", "Document Total", "", "", "", "", "", documentNo, "", "", "", "", "", "", sum.qty, sum.gross, sum.discount, sum.net, "", ""]);
+      const totalValues = Array(FIELDS.length).fill("");
+      totalValues[1] = "Document Total";
+      totalValues[FIELDS.findIndex((field) => field.key === "documentNo")] = documentNo;
+      totalValues[FIELDS.findIndex((field) => field.key === "qty")] = sum.qty;
+      totalValues[FIELDS.findIndex((field) => field.key === "gross")] = sum.gross;
+      totalValues[FIELDS.findIndex((field) => field.key === "discount")] = sum.discount;
+      totalValues[FIELDS.findIndex((field) => field.key === "net")] = sum.net;
+      const totalRow = sheet.addRow(totalValues);
       totalRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
       totalRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF5B9BD5" } };
     });
-    sheet.columns = [14, 27, 17, 12, 18, 16, 18, 16, 21, 28, 15, 18, 12, 10, 10, 15, 14, 15, 14, 14].map((width) => ({ width }));
-    sheet.getColumn(9).numFmt = "dd/mm/yyyy hh:mm:ss";
-    [16, 17, 18, 19, 20].forEach((column) => { sheet.getColumn(column).numFmt = "#,##0.00"; });
+    sheet.columns = FIELDS.map((field) => ({
+      width: field.key === "productName" || field.key === "customer" ? 27
+        : field.key === "date" ? 21
+          : ["packingQuantity", "cartonQuantity"].includes(field.key) ? 18
+            : field.type === "number" ? 14 : 16,
+    }));
+    sheet.getColumn(FIELDS.findIndex((field) => field.key === "date") + 1).numFmt = "dd/mm/yyyy hh:mm:ss";
+    FIELDS.filter((field) => field.type === "number" && field.key !== "qty").forEach((field) => {
+      sheet.getColumn(FIELDS.findIndex((item) => item.key === field.key) + 1).numFmt = "#,##0.00";
+    });
     sheet.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: FIELDS.length } };
     await saveWorkbook(workbook, `sales-register-${dateOnly(new Date())}.xlsx`);
   };
 
-  const downloadPivot = async ({ pivotRows, rowFields, columnFields, displayColumns, valueFields }) => {
+  const downloadPivot = async ({ pivotRows, pivotTotals, rowFields, columnFields, displayColumns, valueFields }) => {
     const { workbook } = await createWorkbook();
     const sheet = workbook.addWorksheet("Pivot View");
     const width = Math.max(1, rowFields.length + displayColumns.length * Math.max(1, valueFields.length));
@@ -473,7 +653,7 @@ export default function SalesRegisterPage() {
       ...group.rowParts,
       ...displayColumns.flatMap((column) => valueFields.map((field) => group.cells[column]?.[field] || 0)),
     ]));
-    const grandTotals = valueFields.map((field) => filteredRows.reduce((sum, row) => sum + Number(pivotValue(row, field) || 0), 0));
+    const grandTotals = valueFields.map((field) => Number(pivotTotals[field] || 0));
     sheet.addRow(["Grand Total", ...Array(Math.max(0, rowFields.length - 1)).fill(""), ...displayColumns.flatMap((column) => column ? valueFields.map(() => "") : grandTotals)]);
     sheet.getRow(3).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2F75B5" } };
@@ -484,20 +664,6 @@ export default function SalesRegisterPage() {
 
   return (
     <section className="sales-register-page">
-      <div className="grn-report-title">
-        <div>
-          <p className="eyebrow">INVENTORY &amp; SALES · SALES REPORTS</p>
-          <h2>Sales Register</h2>
-          <p>Audit-ready sales details, flexible filters, Excel export and pivot analysis.</p>
-        </div>
-      </div>
-
-      <form className="sales-register-date-filters" onSubmit={(event) => { event.preventDefault(); load(); }}>
-        <label>From date<input type="date" value={dates.from} onChange={(event) => setDates((current) => ({ ...current, from: event.target.value }))} /></label>
-        <label>To date<input type="date" value={dates.to} onChange={(event) => setDates((current) => ({ ...current, to: event.target.value }))} /></label>
-        <button type="submit"><FiSearch /> Apply date range</button>
-      </form>
-
       <div className="sales-register-selection audit-filter">
         <label>Selection
           <select value={draft.field} onChange={(event) => changeField(event.target.value)}>{FIELDS.map((field) => <option value={field.key} key={field.key}>{field.label}</option>)}</select>
@@ -545,7 +711,19 @@ export default function SalesRegisterPage() {
         {loading ? <p className="sales-register-loading">Loading sales register…</p> : <ReportTable rows={filteredRows} />}
       </div>
 
-      {pivotOpen && <PivotDesigner rows={filteredRows} filters={filters} dates={dates} onClose={() => setPivotOpen(false)} exportWorkbook={downloadPivot} />}
+      {pivotOpen && (
+        <PivotDesigner
+          rows={filteredRows}
+          filters={filters}
+          filterLabels={[
+            ...(dates.from || dates.to ? [`Date: ${dates.from || "All"} to ${dates.to || "All"}`] : []),
+            ...filters.map(filterDescription),
+          ]}
+          dates={dates}
+          onClose={() => setPivotOpen(false)}
+          exportWorkbook={downloadPivot}
+        />
+      )}
     </section>
   );
 }

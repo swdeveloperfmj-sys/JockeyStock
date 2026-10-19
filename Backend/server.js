@@ -382,7 +382,7 @@ app.get('/api/reports/sales-register', async (req, res) => {
   const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(5000).lean();
   const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))).filter((id) => mongoose.isValidObjectId(id)))];
   const products = productIds.length
-    ? await Product.find({ _id: { $in: productIds } }).select('_id productCode productName gender categoryCode subCategoryCode subSubCategory supplierCode color size costPrice sellingPrice').lean()
+    ? await Product.find({ _id: { $in: productIds } }).select('_id productCode productName style packingQuantity cartonQuantity gender categoryCode subCategoryCode subSubCategory supplierCode color size costPrice sellingPrice').lean()
     : [];
   const productById = new Map(products.map((product) => [String(product._id), product]));
   orders.forEach((order) => {
