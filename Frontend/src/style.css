@@ -1645,6 +1645,8 @@ td small {
 }
 .user-form {
   display: grid;
+  width: 100%;
+  max-width: none;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
   margin-top: 12px;
@@ -1673,6 +1675,13 @@ td small {
   width: auto;
   min-width: 130px;
 }
+.sidebar-permission-fieldset { grid-column: 1 / -1; min-width: 0; margin: 8px 0 16px; padding: 15px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface) 94%, var(--cream)); }
+.sidebar-permission-fieldset legend { padding: 0 7px; color: var(--ink); font-size: .78rem; font-weight: 800; }
+.sidebar-permission-fieldset > p { margin: 0 0 12px; color: var(--muted); font-size: .7rem; }
+.sidebar-permission-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.user-form .sidebar-permission-grid label { display: flex; min-height: 38px; align-items: center; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: .72rem; cursor: pointer; }
+.user-form .sidebar-permission-grid input[type="checkbox"] { appearance: auto; width: 15px; height: 15px; min-height: 15px; flex: 0 0 15px; margin: 0; padding: 0; accent-color: var(--red); }
+.user-form .sidebar-permission-grid span { min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
 .settings-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -5052,6 +5061,7 @@ label {
   .user-form {
     grid-template-columns: 1fr;
   }
+  .sidebar-permission-grid { grid-template-columns: 1fr 1fr; }
   .user-form .modal-actions button {
     min-width: 0;
     flex: 1;
@@ -7012,6 +7022,111 @@ label {
     padding-bottom: 0 !important;
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+/* Sales order mobile containment.
+   Keep this after the desktop sales-order rules so later two-column declarations
+   cannot force the form wider than the handset viewport. */
+@media (max-width: 760px) {
+  .dashboard-content,
+  .sales-page,
+  .sales-order-form,
+  .sales-order-main,
+  .sales-order-card,
+  .customer-fields,
+  .customer-fields > label,
+  .customer-combobox,
+  .selected-customer-summary,
+  .order-product-grid,
+  .order-product-card,
+  .sales-add-product {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .sales-page,
+  .sales-order-form,
+  .sales-order-main,
+  .sales-order-card {
+    width: 100%;
+  }
+
+  .sales-order-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 16px;
+  }
+
+  .sales-order-main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .sales-order-card {
+    padding: 16px;
+    overflow-x: hidden;
+  }
+
+  .sales-order-card.customer-card {
+    overflow: visible;
+  }
+
+  .customer-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .customer-address {
+    grid-column: auto;
+  }
+
+  .customer-fields input,
+  .customer-fields select,
+  .customer-fields textarea,
+  .customer-combobox-trigger,
+  .order-product-filter,
+  .sales-add-product input,
+  .sales-add-product select {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .customer-combobox-trigger span {
+    min-width: 0;
+  }
+
+  .selected-customer-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .order-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .product-quantity-modal {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .dashboard-content {
+    padding-inline: 12px;
+  }
+
+  .sales-order-card {
+    padding: 14px;
+  }
+
+  .selected-customer-summary,
+  .order-product-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sales-order-summary {
+    flex-wrap: wrap;
   }
 }
 

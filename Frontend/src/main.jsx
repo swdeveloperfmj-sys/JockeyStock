@@ -191,6 +191,25 @@ function Login({ onLogin, theme, setTheme }) {
     </main>
   );
 }
+const ROLE_SIDEBAR_PERMISSIONS = {
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "Sales", "Customers", "Sales Order Series", "Users", "Locations", "Roles", "Sales Register", "GRN Report"],
+  LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
+  "SALES DEP": ["Shipment"],
+  SALES_DEP: ["Shipment"],
+  SALES_REP: ["Dashboard", "Create Order", "Sales"],
+};
+const ALL_SIDEBAR_PERMISSIONS = [
+  ...ROLE_SIDEBAR_PERMISSIONS.SUPER_ADMIN,
+  ...ROLE_SIDEBAR_PERMISSIONS.LOCATION_MANAGER.filter(
+    (permission) => !ROLE_SIDEBAR_PERMISSIONS.SUPER_ADMIN.includes(permission),
+  ),
+  ...ROLE_SIDEBAR_PERMISSIONS.SALES_REP.filter(
+    (permission) =>
+      !ROLE_SIDEBAR_PERMISSIONS.SUPER_ADMIN.includes(permission) &&
+      !ROLE_SIDEBAR_PERMISSIONS.LOCATION_MANAGER.includes(permission),
+  ),
+];
+const sidebarPermissionsForRole = (role) => ROLE_SIDEBAR_PERMISSIONS[role] || ROLE_SIDEBAR_PERMISSIONS.SALES_REP;
 const blank = {
   name: "",
   username: "",
@@ -200,10 +219,13 @@ const blank = {
   contactNumber: "",
   location: "",
   role: "SALES_REP",
+  sidebarPermissions: [...ROLE_SIDEBAR_PERMISSIONS.SALES_REP],
 };
 function UserModal({ user, onClose, onSaved }) {
   const [f, setF] = useState(
-      user ? { ...user, password: "", confirmPassword: "" } : blank,
+      user
+        ? { ...user, password: "", confirmPassword: "", sidebarPermissions: Array.isArray(user.sidebarPermissions) ? user.sidebarPermissions : [...sidebarPermissionsForRole(user.role)] }
+        : { ...blank, sidebarPermissions: [...blank.sidebarPermissions] },
     ),
     [roles, setR] = useState([]),
     [locs, setL] = useState([]),
@@ -225,9 +247,25 @@ function UserModal({ user, onClose, onSaved }) {
       setL(l);
     });
   }, []);
-  const u = (x) => setF({ ...f, [x.target.name]: x.target.value });
+  const u = (x) => {
+    if (x.target.name === "role") {
+      setF({ ...f, role: x.target.value, sidebarPermissions: [...sidebarPermissionsForRole(x.target.value)] });
+      return;
+    }
+    setF({ ...f, [x.target.name]: x.target.value });
+  };
+  const toggleSidebarPermission = (permission) => setF((current) => ({
+    ...current,
+    sidebarPermissions: current.sidebarPermissions.includes(permission)
+      ? current.sidebarPermissions.filter((item) => item !== permission)
+      : [...current.sidebarPermissions, permission],
+  }));
   async function submit(x) {
     x.preventDefault();
+    if (!f.sidebarPermissions.length) {
+      setE("Select at least one left sidebar field.");
+      return;
+    }
     try {
       const r = await fetch(`${API_URL}/users${edit ? `/${user.id}` : ""}`, {
           method: edit ? "PATCH" : "POST",
@@ -326,6 +364,22 @@ function UserModal({ user, onClose, onSaved }) {
               ))}
             </select>
           </label>
+          <fieldset className="sidebar-permission-fieldset">
+            <legend>Left sidebar access *</legend>
+            <p>Tick the menu fields this user should see after signing in.</p>
+            <div className="sidebar-permission-grid">
+              {ALL_SIDEBAR_PERMISSIONS.map((permission) => (
+                <label key={permission}>
+                  <input
+                    type="checkbox"
+                    checked={f.sidebarPermissions.includes(permission)}
+                    onChange={() => toggleSidebarPermission(permission)}
+                  />
+                  <span>{permission}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <p className="error">{e}</p>
           <div className="modal-actions">
             <button type="button" className="cancel-button" onClick={onClose}>
@@ -2578,11 +2632,19 @@ function GrnProductLookup() {
   return open && <div className="modal-backdrop grn-lookup-backdrop" onClick={() => setOpen(false)}><section className="grn-lookup-modal" onClick={(event) => event.stopPropagation()}><div className="product-image-preview-header"><div><p className="eyebrow">PRODUCT MASTER</p><h2>Select product</h2><p>Search, then double-click an item to add it to the GRN.</p></div><button type="button" className="close-modal" onClick={() => setOpen(false)}><FiX /></button></div><input autoFocus type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search code, name, style, colour..." /><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Product Code</th><th>Product Name</th><th>Style</th><th>Colour</th><th>Size</th><th>Stock</th></tr></thead><tbody>{visible.map((product) => <tr key={product._id} onDoubleClick={() => selectProduct(product)} title="Double-click to select"><td>{product.productCode || product.sku}</td><td>{product.productName || product.name}</td><td>{product.style || "-"}</td><td>{product.color || "-"}</td><td>{product.size || "-"}</td><td>{Number(product.openingStock || 0).toLocaleString()}</td></tr>)}</tbody></table></div></section></div>;
 }
 function Dashboard({ user, onLogout, theme, setTheme }) {
+  const permissionConfigured = Array.isArray(user.sidebarPermissions);
+  const canSeeSidebar = (permission) => !permissionConfigured || user.sidebarPermissions.includes(permission);
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
     [headerHidden, setHeaderHidden] = useState(false),
     [confirm, setConfirm] = useState(false),
-    [view, setV] = useState(() => ["SALES DEP", "SALES_DEP"].includes(user.role) ? "Shipment" : "Dashboard"),
+    [view, setV] = useState(() => {
+      const roleFields = sidebarPermissionsForRole(user.role);
+      const visibleFields = Array.isArray(user.sidebarPermissions)
+        ? ALL_SIDEBAR_PERMISSIONS.filter((field) => user.sidebarPermissions.includes(field))
+        : roleFields;
+      return visibleFields.find((field) => field !== "Inventory") || visibleFields[0] || "Dashboard";
+    }),
     [timeGreeting, setTimeGreeting] = useState(getTimeGreeting),
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
@@ -2668,7 +2730,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     const timer = window.setTimeout(() => setToastNotification(null), 6000);
     return () => window.clearTimeout(timer);
   }, [toastNotification]);
-  const links = admin
+  const roleLinks = admin
     ? [
         [FiCodesandbox, "Dashboard"],
         [FiBox, "Inventory"],
@@ -2697,6 +2759,24 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiPlusCircle, "Create Order"],
           [FiFileText, "Sales"],
         ];
+  const configurableLinks = [
+    [FiCodesandbox, "Dashboard"],
+    [FiBox, "Inventory"],
+    [FiFileText, "Stock Updates"],
+    [FiFileText, "GRN"],
+    [FiBarChart2, "Sales"],
+    [FiUsers, "Customers"],
+    [FiFileText, "Sales Order Series"],
+    [FiUsers, "Users"],
+    [FiMapPin, "Locations"],
+    [FiUsers, "Roles"],
+    [FiBox, "Stock Update"],
+    [FiPlusCircle, "Create Order"],
+    [FiLayers, "Pending Orders"],
+    [FiTruck, "Shipment"],
+  ];
+  const links = (permissionConfigured ? configurableLinks : roleLinks)
+    .filter(([, label]) => canSeeSidebar(label));
   useEffect(() => {
     let lastY = window.scrollY;
     const updateHeader = () => {
@@ -3313,7 +3393,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {(admin || locationManager) && (
+          {((permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report"))) ||
+            (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
                 type="button"
@@ -3345,56 +3426,60 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                   </button>
                   {inventorySalesOpen && (
                     <div className="sidebar-submenu sidebar-submenu-deep">
-                      <button
-                        type="button"
-                        className="sidebar-menu-trigger sidebar-submenu-trigger"
-                        aria-expanded={salesReportsOpen}
-                        onClick={() => setSalesReportsOpen((open) => !open)}
-                      >
-                        <span>Sales Reports</span>
-                        <FiChevronDown className={`sidebar-menu-chevron${salesReportsOpen ? " is-open" : ""}`} />
-                      </button>
-                      {salesReportsOpen && (
-                        <div className="sidebar-submenu sidebar-submenu-deep">
+                      {canSeeSidebar("Sales Register") && <>
+                        <button
+                          type="button"
+                          className="sidebar-menu-trigger sidebar-submenu-trigger"
+                          aria-expanded={salesReportsOpen}
+                          onClick={() => setSalesReportsOpen((open) => !open)}
+                        >
+                          <span>Sales Reports</span>
+                          <FiChevronDown className={`sidebar-menu-chevron${salesReportsOpen ? " is-open" : ""}`} />
+                        </button>
+                        {salesReportsOpen && (
+                          <div className="sidebar-submenu sidebar-submenu-deep">
+                            <a
+                              className={`sidebar-report-link${view === "Sales Register" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Sales Register");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Sales Register</span>
+                            </a>
+                          </div>
+                        )}
+                      </>}
+                      {canSeeSidebar("GRN Report") && <>
+                        <button
+                          type="button"
+                          className="sidebar-menu-trigger sidebar-submenu-trigger"
+                          aria-expanded={transactionInquiryOpen}
+                          onClick={() => setTransactionInquiryOpen((open) => !open)}
+                        >
+                          <span>Transaction Inquiry</span>
+                          <FiChevronDown className={`sidebar-menu-chevron${transactionInquiryOpen ? " is-open" : ""}`} />
+                        </button>
+                        {transactionInquiryOpen && (
                           <a
-                            className={`sidebar-report-link${view === "Sales Register" ? " active" : ""}`}
+                            className={`sidebar-report-link${view === "GRN Report" ? " active" : ""}`}
                             href="#"
                             onClick={(event) => {
                               event.preventDefault();
                               setOrderToEdit(null);
-                              setV("Sales Register");
+                              setV("GRN Report");
                               setM(false);
                             }}
                           >
                             <FiFileText />
-                            <span>Sales Register</span>
+                            <span>Goods Received Note (GRN)</span>
                           </a>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        className="sidebar-menu-trigger sidebar-submenu-trigger"
-                        aria-expanded={transactionInquiryOpen}
-                        onClick={() => setTransactionInquiryOpen((open) => !open)}
-                      >
-                        <span>Transaction Inquiry</span>
-                        <FiChevronDown className={`sidebar-menu-chevron${transactionInquiryOpen ? " is-open" : ""}`} />
-                      </button>
-                      {transactionInquiryOpen && (
-                        <a
-                          className={`sidebar-report-link${view === "GRN Report" ? " active" : ""}`}
-                          href="#"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            setOrderToEdit(null);
-                            setV("GRN Report");
-                            setM(false);
-                          }}
-                        >
-                          <FiFileText />
-                          <span>Goods Received Note (GRN)</span>
-                        </a>
-                      )}
+                        )}
+                      </>}
                     </div>
                   )}
                 </div>
