@@ -4049,6 +4049,29 @@ label {
   .sales-order-card {
     padding: 18px;
   }
+  /* Keep the customer search reachable when the on-screen keyboard reduces
+     the viewport. The menu itself scrolls, rather than relying on the page
+     behind it to scroll. */
+  .customer-combobox-menu {
+    position: fixed;
+    z-index: 200;
+    top: auto;
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 24px);
+    padding: 10px;
+    overscroll-behavior: contain;
+  }
+  .customer-combobox-options {
+    max-height: none;
+    min-height: 0;
+    flex: 1 1 auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
   .customer-fields {
     grid-template-columns: 1fr;
   }
@@ -4233,6 +4256,40 @@ label {
 .product-modal-layer { padding: 20px; }
 .color-modal-layer { z-index: 110; }
 .size-modal-layer { z-index: 120; }
+.product-image-preview-layer { z-index: 130; }
+.size-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.size-modal-image-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-height: 36px;
+  margin: 0;
+  padding: 3px 9px 3px 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface) !important;
+  box-shadow: none !important;
+  color: var(--ink) !important;
+  font-size: .7rem;
+  font-weight: 700;
+}
+.size-modal-image-trigger img {
+  width: 30px;
+  height: 30px;
+  display: block;
+  border-radius: 5px;
+  object-fit: cover;
+}
+.size-modal-image-trigger:hover,
+.size-modal-image-trigger:focus-visible {
+  border-color: var(--red);
+  outline: none;
+}
 .add-all-sizes-button { width: 100%; min-height: 46px; margin: 18px 0 0; }
 @media (max-width: 600px) {
   .product-selection-modal { width: 100vw; max-height: 100dvh; min-height: 100dvh; border: 0; border-radius: 0; }
@@ -4240,6 +4297,8 @@ label {
   .product-selection-modal-body { max-height: calc(100dvh - 92px); padding: 0 18px 24px; }
   .size-quantity-row { grid-template-columns: 1fr 98px; }
   .size-quantity-row > div { grid-column: 1 / -1; }
+  .size-modal-image-trigger span { display: none; }
+  .size-modal-image-trigger { padding: 3px; }
 }
 .order-product-content em {
   display: inline-block;
