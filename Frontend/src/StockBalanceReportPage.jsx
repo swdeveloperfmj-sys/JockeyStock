@@ -42,7 +42,7 @@ function matchesFilter(row, filter) {
 }
 
 function BalanceTable({ rows }) {
-  return <table className="grn-report-table sales-register-table"><thead><tr>{FIELDS.map((field) => <th key={field.key}>{field.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{FIELDS.map((field) => <td key={field.key} className={field.type === "number" ? "number-cell" : ""}>{field.type === "number" ? (field.key === "stockBalance" ? Number(row[field.key] || 0).toLocaleString() : money(row[field.key])) : field.type === "date" ? dateTime(row[field.key]) : row[field.key] || "—"}</td>)}</tr>)}{!rows.length && <tr><td className="pivot-empty" colSpan={FIELDS.length}>No stock balance records match these filters.</td></tr>}</tbody></table>;
+  return <table className="grn-report-table sales-register-table stock-balance-table"><thead><tr>{FIELDS.map((field) => <th key={field.key}>{field.label}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{FIELDS.map((field) => <td key={field.key} className={field.type === "number" ? "number-cell" : ""}>{field.type === "number" ? (field.key === "stockBalance" ? Number(row[field.key] || 0).toLocaleString() : money(row[field.key])) : field.type === "date" ? dateTime(row[field.key]) : row[field.key] || "—"}</td>)}</tr>)}{!rows.length && <tr><td className="pivot-empty" colSpan={FIELDS.length}>No stock balance records match these filters.</td></tr>}</tbody></table>;
 }
 
 const PIVOT_LABELS = FIELDS.filter((field) => !["stockBalance", "costPrice", "stockValue", "lastUpdated"].includes(field.key));
