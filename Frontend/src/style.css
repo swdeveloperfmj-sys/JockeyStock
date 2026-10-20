@@ -454,6 +454,42 @@ nav a.sidebar-report-link {
   vertical-align: middle;
   font-size: 0.76rem;
 }
+.grn-report-table .grn-column-filters th {
+  padding: 7px 6px;
+  background: color-mix(in srgb, var(--surface) 94%, #2f75b5);
+}
+.grn-report-table .grn-column-filters input,
+.grn-report-table .grn-column-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 31px;
+  margin: 0;
+  padding: 5px 7px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+}
+:root[data-theme="dark"] .grn-report-table .grn-column-filters input,
+:root[data-theme="dark"] .grn-report-table .grn-column-filters select {
+  background: #0d131c;
+  border-color: #354154;
+  color: #f5f7fb;
+  -webkit-text-fill-color: #f5f7fb;
+  color-scheme: dark;
+}
+:root[data-theme="dark"] .grn-report-table .grn-column-filters input::placeholder {
+  color: #aeb8c9;
+  -webkit-text-fill-color: #aeb8c9;
+  opacity: 1;
+}
+:root[data-theme="dark"] .grn-report-table .grn-column-filters select option {
+  background: #151b26;
+  color: #f5f7fb;
+}
+:root[data-theme="light"] .grn-report-table .grn-column-filters input,
+:root[data-theme="light"] .grn-report-table .grn-column-filters select {
+  color: #172234;
+  -webkit-text-fill-color: #172234;
+}
 .grn-report-table > thead th {
   background: linear-gradient(135deg, #1d5f9e, #347fbd);
   color: #fff;
