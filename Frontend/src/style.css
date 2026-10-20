@@ -1454,6 +1454,51 @@ header h1 {
 .grn-page .grn-preview .product-table th:nth-child(7) { width: 15%; }
 .grn-page .grn-preview .product-table th:nth-child(8) { width: 4%; }
 .grn-page .grn-preview .close-modal { width: 28px; height: 28px; }
+
+/* Sales Return has no row-number column, so it needs its own balanced grid. */
+.sales-return-page .grn-preview .product-table th,
+.sales-return-page .grn-preview .product-table td { padding: 12px 14px; }
+.sales-return-page .grn-preview .product-table thead th {
+  height: 54px;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: .7rem;
+  letter-spacing: .055em;
+}
+.sales-return-page .grn-preview .product-table th:nth-child(1) { width: 15%; }
+.sales-return-page .grn-preview .product-table th:nth-child(2) { width: 27%; }
+.sales-return-page .grn-preview .product-table th:nth-child(3) { width: 9%; text-align: center; }
+.sales-return-page .grn-preview .product-table th:nth-child(4) { width: 10%; text-align: center; }
+.sales-return-page .grn-preview .product-table th:nth-child(5) { width: 13%; }
+.sales-return-page .grn-preview .product-table th:nth-child(6) { width: 17%; }
+.sales-return-page .grn-preview .product-table th:nth-child(7) { width: 12%; }
+.sales-return-page .grn-preview .product-table th:nth-child(8) { width: 5%; }
+.sales-return-page .grn-preview .product-table td:nth-child(1),
+.sales-return-page .grn-preview .product-table td:nth-child(5),
+.sales-return-page .grn-preview .product-table td:nth-child(7) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sales-return-page .grn-preview .product-table td:nth-child(3),
+.sales-return-page .grn-preview .product-table td:nth-child(4) { text-align: center; }
+.sales-return-page .grn-preview .product-table input { min-height: 34px; margin: 0; padding: 6px 8px; font-size: .76rem; }
+.sales-return-page .sales-return-history { margin-top: 18px; border: 1px solid var(--border); border-radius: 8px; }
+.sales-return-page .sales-return-history .grn-preview-heading { display: flex; }
+.sales-return-page .sales-return-history .product-table { min-width: 1120px; table-layout: auto; }
+.sales-return-page .sales-return-history .product-table th,
+.sales-return-page .sales-return-history .product-table td { width: auto; padding: 8px 10px; white-space: nowrap; overflow-wrap: normal; }
+.sales-return-page .sales-return-history .cancel-button { width: auto; min-height: 32px; margin: 0; padding: 5px 10px; }
+.grn-page .grn-add-item.sales-return-scanner {
+  display: grid;
+  grid-template-columns: 14% 25% 8% 10% 12% 16% 11% 4%;
+  gap: 0;
+  align-items: end;
+  padding: 68px 0 24px;
+}
+.grn-page .grn-add-item.sales-return-scanner input { min-width: 0; height: 46px; margin: 0; padding: 0 14px; border-radius: 0; }
+.grn-page .grn-add-item.sales-return-scanner input:nth-of-type(1) { grid-column: 1; border-radius: 8px 0 0 8px; }
+.grn-page .grn-add-item.sales-return-scanner input:nth-of-type(2) { grid-column: 2; }
+.grn-page .grn-add-item.sales-return-scanner input:nth-of-type(3) { grid-column: 4; }
+.grn-page .grn-add-item.sales-return-scanner input:nth-of-type(4) { grid-column: 6; border-radius: 0 8px 8px 0; }
+.grn-page .grn-add-item.sales-return-scanner button { position: static; grid-column: 7 / 9; width: calc(100% - 12px); height: 46px; margin-left: 12px; padding: 0 14px; opacity: 1; pointer-events: auto; align-self: end; border-radius: 8px; }
+@media (max-width: 900px) { .grn-page .grn-add-item.sales-return-scanner { grid-template-columns: 1fr 1fr; gap: 10px; padding: 20px; } .grn-page .grn-add-item.sales-return-scanner input:nth-of-type(n), .grn-page .grn-add-item.sales-return-scanner button { grid-column: auto; width: 100%; margin: 0; border-radius: 7px; } }
 .grn-lookup-modal {
   width: min(1060px, calc(100vw - 40px));
   max-height: min(780px, calc(100vh - 40px));
@@ -2326,6 +2371,20 @@ td small {
 .sales-register-table td:nth-child(2),
 .sales-register-table td:nth-child(13) { min-width: 210px; }
 .sales-register-table .number-cell { text-align: right; font-variant-numeric: tabular-nums; }
+.report-column-header { position: relative; padding-right: 30px !important; }
+.report-column-header > span { display: inline-block; }
+.report-column-filter { position: absolute; top: 50%; right: 7px; display: grid; width: 20px; height: 20px; min-height: 20px; margin: 0; padding: 0; place-items: center; transform: translateY(-50%); border: 0; border-radius: 4px; background: transparent !important; color: inherit !important; box-shadow: none !important; }
+.report-column-filter:hover, .report-column-filter.active { background: rgba(255,255,255,.24) !important; }
+.report-column-filter svg { width: 14px; height: 14px; }
+.report-column-filter-menu { position: absolute; z-index: 60; top: calc(100% - 1px); left: 0; width: 230px; padding: 9px; border: 1px solid #9ab5d1; background: #fff; color: #172234; box-shadow: 0 10px 24px rgba(21,38,61,.22); font-size: .75rem; font-weight: 500; letter-spacing: 0; text-align: left; text-transform: none; }
+.report-filter-menu-actions { display: flex; gap: 7px; padding-bottom: 7px; border-bottom: 1px solid #d7e1eb; }
+.report-filter-menu-actions button, .report-filter-done { width: auto; min-height: 25px; margin: 0; padding: 3px 7px; border: 1px solid #a8bdd3; border-radius: 3px; background: #f5f8fc !important; color: #245b90 !important; box-shadow: none !important; font-size: .68rem; }
+.report-filter-options { max-height: 230px; margin: 8px -3px; overflow: auto; }
+.report-filter-options label { display: flex; align-items: center; gap: 7px; padding: 4px 3px; cursor: pointer; }
+.report-filter-options label:hover { background: #eef5fc; }
+.report-filter-options input { width: 14px; height: 14px; min-height: 0; margin: 0; accent-color: #2f75b5; }
+.report-filter-options span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-filter-done { display: block; margin-left: auto; }
 .sales-register-loading { padding: 30px; color: var(--muted); text-align: center; }
 .sales-register-status { display: inline-flex; padding: 4px 7px; border-radius: 999px; background: rgba(238,151,47,.16); color: #9b5c10; font-size: .65rem; font-weight: 800; letter-spacing: .03em; }
 .sales-register-status.completed { background: rgba(45,157,120,.15); color: #167556; }

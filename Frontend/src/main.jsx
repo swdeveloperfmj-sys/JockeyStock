@@ -43,6 +43,7 @@ import {
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
 import PrnPage from "./PrnPage.jsx";
+import SalesReturnPage from "./SalesReturnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
@@ -195,8 +196,8 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report"],
-  LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report"],
+  LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
   SALES_REP: ["Dashboard", "Create Order", "Sales"],
@@ -2612,7 +2613,12 @@ function GrnProductLookup() {
 }
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const permissionConfigured = Array.isArray(user.sidebarPermissions);
-  const canSeeSidebar = (permission) => !permissionConfigured || user.sidebarPermissions.includes(permission);
+  // Sales Return was introduced after some Super Admin accounts already had a
+  // saved permission list. Keep it available to Super Admins without requiring
+  // each existing account to be edited once.
+  const canSeeSidebar = (permission) => permission === "Sales Return" && user.role === "SUPER_ADMIN"
+    ? true
+    : !permissionConfigured || user.sidebarPermissions.includes(permission);
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
     [headerHidden, setHeaderHidden] = useState(false),
@@ -2717,6 +2723,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
         [FiFileText, "PRN"],
+        [FiFileText, "Sales Return"],
         [FiBarChart2 , "Sales"],
         [FiUsers, "Customers"],
         [FiUsers, "Users"],
@@ -2729,6 +2736,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiBox, "Stock Update"],
           [FiFileText, "GRN"],
           [FiFileText, "PRN"],
+          [FiFileText, "Sales Return"],
           [FiPlusCircle, "Create Order"],
           [FiLayers, "Pending Orders"],
           [FiTruck, "Shipment"],
@@ -2746,6 +2754,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [FiFileText, "Stock Updates"],
     [FiFileText, "GRN"],
     [FiFileText, "PRN"],
+    [FiFileText, "Sales Return"],
     [FiBarChart2, "Sales"],
     [FiUsers, "Customers"],
     [FiUsers, "Users"],
@@ -2954,6 +2963,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Create a goods received note."
               : view === "PRN"
                 ? "Create a purchase return note."
+            : view === "Sales Return"
+                ? "Create a customer sales return."
             : view === "GRN Report"
               ? "Goods received note report."
             : view === "Sales Register"
@@ -3010,11 +3021,13 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <GrnPageNew user={user} />
     ) : view === "PRN" && (admin || locationManager) ? (
       <PrnPage user={user} />
-    ) : view === "GRN Report" && (admin || locationManager) ? (
+    ) : view === "Sales Return" && (admin || locationManager) ? (
+      <SalesReturnPage user={user} />
+    ) : view === "GRN Report" && (admin || locationManager || canSeeSidebar("GRN Report")) ? (
       <GrnReportPage user={user} />
-    ) : view === "Sales Register" && (admin || locationManager) ? (
+    ) : view === "Sales Register" && (admin || locationManager || canSeeSidebar("Sales Register")) ? (
       <SalesRegisterPage />
-    ) : view === "Stock Balance Report" && admin ? (
+    ) : view === "Stock Balance Report" && (admin || canSeeSidebar("Stock Balance Report")) ? (
       <StockBalanceReportPage />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
@@ -3379,7 +3392,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report"))) ||
+          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report"))) ||
             (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
@@ -3440,7 +3453,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                           </div>
                         )}
                       </>}
-                      {admin && <>
+                      {(admin || canSeeSidebar("Stock Balance Report")) && <>
                         <button
                           type="button"
                           className="sidebar-menu-trigger sidebar-submenu-trigger"
