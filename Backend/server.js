@@ -445,9 +445,12 @@ app.post('/api/reports/stock-balance/pivot-layouts', async (req, res) => {
   if (name.length > 100) return res.status(400).json({ message: 'Layout name must be 100 characters or less.' });
   const dimension = (value) => stockBalancePivotDimensions.has(value) ? value : null;
   const value = (item) => stockBalancePivotValues.has(item) ? item : null;
+  const dimensions = (items) => [...new Set((Array.isArray(items) ? items : []).filter((item) => stockBalancePivotDimensions.has(item)))];
+  const values = (items) => [...new Set((Array.isArray(items) ? items : []).filter((item) => stockBalancePivotValues.has(item)))];
+  const filterValues = Object.fromEntries(Object.entries(req.body.filterValues || {}).filter(([field, item]) => stockBalancePivotDimensions.has(field) && typeof item === 'string'));
   const layout = await StockBalancePivotLayout.findOneAndUpdate(
     { userId: user._id, name },
-    { $set: { rowField: dimension(req.body.rowField), columnField: dimension(req.body.columnField), valueField: value(req.body.valueField), filterField: dimension(req.body.filterField), filterValue: typeof req.body.filterValue === 'string' ? req.body.filterValue : '' } },
+    { $set: { rowField: dimension(req.body.rowField), columnField: dimension(req.body.columnField), valueField: value(req.body.valueField), filterField: dimension(req.body.filterField), filterValue: typeof req.body.filterValue === 'string' ? req.body.filterValue : '', rowFields: dimensions(req.body.rowFields), columnFields: dimensions(req.body.columnFields), valueFields: values(req.body.valueFields), filterFields: dimensions(req.body.filterFields), filterValues } },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
   ).lean();
   res.json(layout);

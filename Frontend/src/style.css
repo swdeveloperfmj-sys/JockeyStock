@@ -2376,7 +2376,8 @@ td small {
 .pivot-result-table tfoot th:first-child { text-align: left; }
 .pivot-result-table .pivot-label-cell { background: #e2eefc; font-weight: 650; }
 .pivot-result-table tbody tr:hover td { background-color: #fff5d9; }
-.pivot-result-table tfoot th { position: sticky; bottom: 0; background: #c5dcf5; }
+.pivot-result-table tfoot th { position: sticky; bottom: 0; z-index: 3; border-color: #6f9fca; background: linear-gradient(#dbeafb, #b9d4ef); color: #123e66 !important; font-weight: 850; text-shadow: none; }
+.pivot-result-table tfoot th:first-child { letter-spacing: .045em; text-transform: uppercase; }
 .pivot-empty { padding: 30px !important; color: #6d7e90; text-align: center !important; }
 .pivot-builder { position: static !important; top: auto !important; display: grid !important; width: auto !important; height: auto !important; min-width: 0; min-height: 0; align-self: stretch !important; grid-template-rows: minmax(0, 1fr) minmax(0, .9fr); flex-shrink: 1 !important; gap: 10px; overflow: hidden !important; padding: 0 !important; background: transparent !important; color: #172234 !important; }
 .pivot-fields-panel,
