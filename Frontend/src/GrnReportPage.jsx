@@ -70,6 +70,7 @@ const downloadReportElement = async (element, grnNumber) => {
 export default function GrnReportPage({ user }) {
   const [records, setRecords] = useState([]);
   const [dates, setDates] = useState({ from: "", to: "" });
+  const [columnFilters, setColumnFilters] = useState({});
   const [expandedId, setExpandedId] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
   const [documentGrn, setDocumentGrn] = useState(null);
@@ -129,9 +130,26 @@ export default function GrnReportPage({ user }) {
     };
   }, [contextMenu]);
 
+  const filteredRecords = useMemo(() => records.filter((grn) => {
+    const values = {
+      grnNumber: grn.grnNumber,
+      grnDate: String(grn.grnDate || "").slice(0, 10),
+      supplierCode: grn.supplierCode,
+      supplierName: grn.supplierName,
+      location: grn.location,
+      items: grn.items?.length || 0,
+      totalQuantity: grn.totalQuantity,
+      totalAmount: grn.totalAmount,
+      createdByName: grn.createdByName,
+    };
+    return Object.entries(columnFilters).every(([key, value]) =>
+      !value || String(values[key] ?? "").toLowerCase().includes(value.toLowerCase()),
+    );
+  }), [records, columnFilters]);
+
   const summary = useMemo(
     () =>
-      records.reduce(
+      filteredRecords.reduce(
         (total, grn) => ({
           lineItems: total.lineItems + (grn.items?.length || 0),
           quantity: total.quantity + Number(grn.totalQuantity || 0),
@@ -139,14 +157,45 @@ export default function GrnReportPage({ user }) {
         }),
         { lineItems: 0, quantity: 0, amount: 0 },
       ),
-    [records],
+    [filteredRecords],
   );
 
   const resetDates = () => {
     const empty = { from: "", to: "" };
     setDates(empty);
+    setColumnFilters({});
     load(empty);
   };
+  const setColumnFilter = (key, value) =>
+    setColumnFilters((current) => ({ ...current, [key]: value }));
+  const columnOptions = useMemo(() => {
+    const values = {
+      grnNumber: records.map((grn) => grn.grnNumber),
+      grnDate: records.map((grn) => String(grn.grnDate || "").slice(0, 10)),
+      supplierCode: records.map((grn) => grn.supplierCode),
+      supplierName: records.map((grn) => grn.supplierName),
+      location: records.map((grn) => grn.location),
+      createdByName: records.map((grn) => grn.createdByName),
+    };
+    return Object.fromEntries(Object.entries(values).map(([key, options]) => [
+      key,
+      [...new Set(options.filter(Boolean))].sort((left, right) =>
+        String(left).localeCompare(String(right), undefined, { numeric: true }),
+      ),
+    ]));
+  }, [records]);
+  const filterSelect = (key, label) => (
+    <select
+      aria-label={`Filter ${label}`}
+      value={columnFilters[key] || ""}
+      onChange={(event) => setColumnFilter(key, event.target.value)}
+    >
+      <option value="">All</option>
+      {columnOptions[key].map((option) => (
+        <option key={option} value={option}>{option}</option>
+      ))}
+    </select>
+  );
 
   const openContextMenu = (grn, x, y) => {
     setContextMenu({
@@ -199,7 +248,7 @@ export default function GrnReportPage({ user }) {
       {error && <p className="dashboard-error">{error}</p>}
 
       <div className="grn-report-summary">
-        <article><span>Total GRNs</span><strong>{records.length}</strong></article>
+        <article><span>Total GRNs</span><strong>{filteredRecords.length}</strong></article>
         <article><span>Line Items</span><strong>{summary.lineItems}</strong></article>
         <article><span>Total Qty</span><strong>{summary.quantity.toLocaleString()}</strong></article>
         <article><span>Total Amount</span><strong>{money(summary.amount)}</strong></article>
@@ -220,12 +269,24 @@ export default function GrnReportPage({ user }) {
               <th>Created By</th>
               <th></th>
             </tr>
+            <tr className="grn-column-filters">
+              <th>{filterSelect("grnNumber", "GRN number")}</th>
+              <th>{filterSelect("grnDate", "GRN date")}</th>
+              <th>{filterSelect("supplierCode", "supplier code")}</th>
+              <th>{filterSelect("supplierName", "supplier name")}</th>
+              <th>{filterSelect("location", "location")}</th>
+              <th><input aria-label="Filter item count" inputMode="numeric" value={columnFilters.items || ""} onChange={(event) => setColumnFilter("items", event.target.value)} placeholder="Filter" /></th>
+              <th><input aria-label="Filter total quantity" inputMode="numeric" value={columnFilters.totalQuantity || ""} onChange={(event) => setColumnFilter("totalQuantity", event.target.value)} placeholder="Filter" /></th>
+              <th><input aria-label="Filter total amount" inputMode="decimal" value={columnFilters.totalAmount || ""} onChange={(event) => setColumnFilter("totalAmount", event.target.value)} placeholder="Filter" /></th>
+              <th>{filterSelect("createdByName", "created by")}</th>
+              <th></th>
+            </tr>
           </thead>
           <tbody>
-            {!loading && records.length === 0 && (
-              <tr className="grn-report-empty"><td colSpan="10">No GRNs found for the selected date range.</td></tr>
+            {!loading && filteredRecords.length === 0 && (
+              <tr className="grn-report-empty"><td colSpan="10">No GRNs match the selected filters.</td></tr>
             )}
-            {records.map((grn) => {
+            {filteredRecords.map((grn) => {
               const expanded = expandedId === grn._id;
               return (
                 <FragmentRow
