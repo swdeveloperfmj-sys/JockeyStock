@@ -42,9 +42,12 @@ import {
 } from "react-icons/fi";
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
+import PrnPage from "./PrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import SalesRegisterPage from "./SalesRegisterPage.jsx";
+import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
+import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
 import CustomersPage from "./CustomersPage.jsx";
@@ -192,7 +195,7 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "Sales", "Customers", "Sales Order Series", "Users", "Locations", "Roles", "Sales Register", "GRN Report"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report"],
   LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
@@ -2625,6 +2628,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
     [salesReportsOpen, setSalesReportsOpen] = useState(false),
+    [stockReportsOpen, setStockReportsOpen] = useState(false),
     [transactionInquiryOpen, setTransactionInquiryOpen] = useState(false),
     [dashboardData, setDashboardData] = useState(null),
     [dashboardError, setDashboardError] = useState(""),
@@ -2712,9 +2716,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiBox, "Inventory"],
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
+        [FiFileText, "PRN"],
         [FiBarChart2 , "Sales"],
         [FiUsers, "Customers"],
-        [FiFileText, "Sales Order Series"],
         [FiUsers, "Users"],
         [FiMapPin, "Locations"],
         [FiUsers, "Roles"],
@@ -2724,6 +2728,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiBarChart2, "Dashboard"],
           [FiBox, "Stock Update"],
           [FiFileText, "GRN"],
+          [FiFileText, "PRN"],
           [FiPlusCircle, "Create Order"],
           [FiLayers, "Pending Orders"],
           [FiTruck, "Shipment"],
@@ -2740,9 +2745,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [FiBox, "Inventory"],
     [FiFileText, "Stock Updates"],
     [FiFileText, "GRN"],
+    [FiFileText, "PRN"],
     [FiBarChart2, "Sales"],
     [FiUsers, "Customers"],
-    [FiFileText, "Sales Order Series"],
     [FiUsers, "Users"],
     [FiMapPin, "Locations"],
     [FiUsers, "Roles"],
@@ -2947,10 +2952,14 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Review stock update history."
             : view === "GRN"
               ? "Create a goods received note."
+              : view === "PRN"
+                ? "Create a purchase return note."
             : view === "GRN Report"
               ? "Goods received note report."
             : view === "Sales Register"
               ? "Sales register report."
+            : view === "Stock Balance Report"
+              ? "Stock balance report."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -2961,8 +2970,6 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 ? "Create sales order."
             : view === "Sales"
               ? "Sales history."
-              : view === "Sales Order Series"
-                ? "Configure automatic sales order numbers."
                 : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
@@ -3001,10 +3008,14 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <StockUpdatesHistoryPage />
     ) : view === "GRN" && (admin || locationManager) ? (
       <GrnPageNew user={user} />
+    ) : view === "PRN" && (admin || locationManager) ? (
+      <PrnPage user={user} />
     ) : view === "GRN Report" && (admin || locationManager) ? (
       <GrnReportPage user={user} />
     ) : view === "Sales Register" && (admin || locationManager) ? (
       <SalesRegisterPage />
+    ) : view === "Stock Balance Report" && admin ? (
+      <StockBalanceReportPage />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
@@ -3026,8 +3037,6 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       />
     ) : view === "Sales" && !locationManager ? (
       <SalesHistoryPage refreshKey={orderRefreshKey} isAdmin={admin} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
-    ) : view === "Sales Order Series" && admin ? (
-      <SalesOrderSeriesSettings />
     ) : (
       <>
         <section className="stats">
@@ -3053,6 +3062,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         )}
         {admin && view === "Dashboard" && <>
           <GrnSeriesSettings />
+          <PrnSeriesSettings />
           <SalesOrderSeriesSettings />
           <CustomerSeriesSettings />
         </>}
@@ -3369,7 +3379,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {((permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report"))) ||
+          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report"))) ||
             (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
@@ -3426,6 +3436,34 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                             >
                               <FiFileText />
                               <span>Sales Register</span>
+                            </a>
+                          </div>
+                        )}
+                      </>}
+                      {admin && <>
+                        <button
+                          type="button"
+                          className="sidebar-menu-trigger sidebar-submenu-trigger"
+                          aria-expanded={stockReportsOpen}
+                          onClick={() => setStockReportsOpen((open) => !open)}
+                        >
+                          <span>Stock Reports</span>
+                          <FiChevronDown className={`sidebar-menu-chevron${stockReportsOpen ? " is-open" : ""}`} />
+                        </button>
+                        {stockReportsOpen && (
+                          <div className="sidebar-submenu sidebar-submenu-deep">
+                            <a
+                              className={`sidebar-report-link${view === "Stock Balance Report" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Stock Balance Report");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Stock Balance Report</span>
                             </a>
                           </div>
                         )}
@@ -3849,9 +3887,17 @@ function ProductMaster({ open }) {
       );
       const seenCodes = new Set();
       const previewRows = importedRows.map((row) => {
+        const normalizedRow = Object.fromEntries(
+          productImportColumns.map(({ key }) => [
+            key,
+            productPriceFields.includes(key)
+              ? row[key]
+              : String(row[key] || "").trim().toUpperCase(),
+          ]),
+        );
         const issues = [];
-        const productCode = String(row.productCode || "").trim();
-        const details = parseProductNameDetails(row.productName);
+        const productCode = normalizedRow.productCode;
+        const details = parseProductNameDetails(normalizedRow.productName);
         if (!/^\d{13}$/.test(productCode)) {
           issues.push("Product Code must contain exactly 13 numbers.");
         }
@@ -3867,13 +3913,13 @@ function ProductMaster({ open }) {
           issues.push("Invalid Product Name format.");
         }
         if (
-          !allowedProductGenders.includes(normalizeProductGender(row.gender))
+          !allowedProductGenders.includes(normalizeProductGender(normalizedRow.gender))
         ) {
           issues.push("Invalid Gender.");
         }
         if (
           ["categoryCode", "subCategoryCode", "supplierCode"].some(
-            (field) => !String(row[field] || "").trim(),
+            (field) => !String(normalizedRow[field] || "").trim(),
           )
         ) {
           issues.push("A required classification field is empty.");
@@ -3881,17 +3927,16 @@ function ProductMaster({ open }) {
         if (
           productPriceFields.some(
             (field) =>
-              String(row[field] ?? "").trim() === "" ||
-              !Number.isFinite(Number(row[field])) ||
-              Number(row[field]) < 0,
+              String(normalizedRow[field] ?? "").trim() === "" ||
+              !Number.isFinite(Number(normalizedRow[field])) ||
+              Number(normalizedRow[field]) < 0,
           )
         ) {
           issues.push("One or more prices are invalid.");
         }
         return {
-          ...row,
-          productName: String(row.productName || "").toUpperCase(),
-          gender: normalizeProductGender(row.gender),
+          ...normalizedRow,
+          gender: normalizeProductGender(normalizedRow.gender),
           details: details || emptyProductBreakdown(),
           issues,
         };

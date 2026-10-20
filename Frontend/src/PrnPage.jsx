@@ -1,0 +1,73 @@
+import { useEffect, useMemo, useState } from "react";
+import { FiRotateCcw, FiSave, FiX } from "react-icons/fi";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+function PrnCreatePage({ user }) {
+  const empty = () => ({ supplierCode: "", supplierName: "", grnNumber: "", prnDate: today(), location: user.location || "Head Office", remarks: "" });
+  const [products, setProducts] = useState([]), [locations, setLocations] = useState([]), [number, setNumber] = useState(""), [form, setForm] = useState(empty), [code, setCode] = useState(""), [quantity, setQuantity] = useState(""), [reason, setReason] = useState(""), [items, setItems] = useState([]), [error, setError] = useState(""), [message, setMessage] = useState(""), [saving, setSaving] = useState(false), [editingId, setEditingId] = useState("");
+  const load = async () => { const responses = await Promise.all([window.fetch(`${API_URL}/products`, { credentials: "include" }), window.fetch(`${API_URL}/locations`, { credentials: "include" }), window.fetch(`${API_URL}/prns/next-number`, { credentials: "include" })]); const data = await Promise.all(responses.map((response) => response.json())); const failed = responses.findIndex((response) => !response.ok); if (failed >= 0) throw new Error(data[failed].message); setProducts(data[0]); setLocations(data[1]); setNumber(data[2].prnNumber); };
+  useEffect(() => { load().catch((requestError) => setError(requestError.message)); }, []);
+  useEffect(() => {
+    const loadForEdit = (event) => { const record = event.detail; if (record.status === "REVERSED") return; setEditingId(record._id); setNumber(record.prnNumber); setForm({ supplierCode: record.supplierCode, supplierName: record.supplierName, grnNumber: record.grnNumber || "", prnDate: String(record.prnDate).slice(0, 10), location: record.location, remarks: record.remarks || "" }); setItems(record.items.map((item) => ({ ...item, productId: String(item.productId) }))); setMessage(`Editing ${record.prnNumber}. Make changes and save to update.`); setError(""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+    window.addEventListener("prn-edit", loadForEdit); return () => window.removeEventListener("prn-edit", loadForEdit);
+  }, []);
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key !== "F3" || document.activeElement?.getAttribute("placeholder") !== "Product Code") return;
+      event.preventDefault(); window.dispatchEvent(new CustomEvent("prn-open-product-lookup", { detail: { location: form.location } }));
+    };
+    const selectProduct = (event) => { setCode(event.detail.productCode); setQuantity(""); setError(""); };
+    window.addEventListener("keydown", onKeyDown, true); window.addEventListener("prn-select-product", selectProduct);
+    return () => { window.removeEventListener("keydown", onKeyDown, true); window.removeEventListener("prn-select-product", selectProduct); };
+  }, [form.location]);
+  const locationProducts = useMemo(() => products.filter((product) => product.plant === form.location), [products, form.location]);
+  const product = locationProducts.find((item) => String(item.productCode || item.sku).toLowerCase() === code.trim().toLowerCase());
+  const add = () => { const qty = Number(quantity); if (!product) return setError("Enter a valid Product Code."); if (!Number.isInteger(qty) || qty < 1) return setError("Enter a whole quantity of at least 1."); if (qty > Number(product.openingStock || 0)) return setError("Return quantity cannot exceed available stock."); setItems((current) => current.some((item) => item.productId === product._id) ? current.map((item) => item.productId === product._id ? { ...item, quantity: item.quantity + qty, reason } : item) : [...current, { productId: product._id, productCode: product.productCode, productName: product.productName, quantity: qty, costPrice: Number(product.costPrice || 0), reason }]); setCode(""); setQuantity(""); setReason(""); setError(""); };
+  useEffect(() => {
+    const addOnEnter = (event) => {
+      if (event.key !== "Enter" || document.activeElement?.getAttribute("placeholder") !== "Return quantity") return;
+      event.preventDefault(); event.stopPropagation(); add();
+    };
+    window.addEventListener("keydown", addOnEnter, true);
+    return () => window.removeEventListener("keydown", addOnEnter, true);
+  }, [code, quantity, reason, product]);
+  const save = async (event) => { event.preventDefault(); if (!items.length) return setError("Add at least one item."); setSaving(true); setError(""); try { const response = await window.fetch(`${API_URL}/prns${editingId ? `/${editingId}` : ""}`, { method: editingId ? "PUT" : "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, items }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); setMessage(`${data.prnNumber} ${editingId ? "updated" : "saved"} successfully.`); setForm(empty()); setItems([]); setCode(""); setQuantity(""); setEditingId(""); window.dispatchEvent(new Event("prn-records-changed")); await load(); } catch (requestError) { setError(requestError.message); } finally { setSaving(false); } };
+  const totalQty = items.reduce((sum, item) => sum + item.quantity, 0), total = items.reduce((sum, item) => sum + item.quantity * item.costPrice, 0);
+  return <section className="grn-page"><div className="page-title"><div><p className="eyebrow">PURCHASE RETURN</p><h1>Purchase Return Note</h1><p className="page-description">Return stock to a supplier and deduct it from available inventory.</p></div></div>{error && <p className="dashboard-error">{error}</p>}{message && <p className="stock-update-success">{message}</p>}<form onSubmit={save}><section className="grn-details"><label>PRN No<input value={number} readOnly /></label><label>GRN Reference<input value={form.grnNumber} placeholder="Optional GRN number" onChange={(event) => setForm({ ...form, grnNumber: event.target.value })} /></label><label>Supplier Code<input required value={form.supplierCode} onChange={(event) => setForm({ ...form, supplierCode: event.target.value })} /></label><label>Supplier Name<input required value={form.supplierName} onChange={(event) => setForm({ ...form, supplierName: event.target.value })} /></label><label>PRN Date<input type="date" value={form.prnDate} onChange={(event) => setForm({ ...form, prnDate: event.target.value })} /></label><label>Location<select disabled={user.role === "LOCATION_MANAGER"} value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })}><option value="Head Office">Head Office</option>{locations.filter((location) => location.name !== "Head Office").map((location) => <option key={location._id} value={location.name}>{location.name}</option>)}</select></label><label className="grn-remarks">Remarks<input value={form.remarks} onChange={(event) => setForm({ ...form, remarks: event.target.value })} /></label></section><section className="grn-add-item"><input autoFocus value={code} placeholder="Product Code" onChange={(event) => setCode(event.target.value)} /><input readOnly value={product?.productName || ""} placeholder="Product Name" /><input type="number" min="1" step="1" value={quantity} placeholder="Return quantity" onChange={(event) => setQuantity(event.target.value)} /><input readOnly value={product ? `Available: ${Number(product.openingStock || 0).toLocaleString()}` : ""} placeholder="Available stock" /><input value={reason} placeholder="Return reason" onChange={(event) => setReason(event.target.value)} /><button type="button" onClick={add}>Add item</button></section><section className="grn-preview"><div className="grn-preview-heading"><h2>Return items</h2><span>{items.length} items · {totalQty.toLocaleString()} pieces</span></div><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Row</th><th>Product Code</th><th>Product Name</th><th>Qty</th><th>Cost Price</th><th>Reason</th><th>Amount</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={item.productId}><td>{index + 1}</td><td>{item.productCode}</td><td>{item.productName}</td><td>{item.quantity}</td><td>LKR {item.costPrice.toLocaleString()}</td><td>{item.reason || "—"}</td><td>LKR {(item.quantity * item.costPrice).toLocaleString()}</td><td><button type="button" className="close-modal" onClick={() => setItems((current) => current.filter((candidate) => candidate.productId !== item.productId))}><FiX /></button></td></tr>)}</tbody></table></div><div className="grn-total"><span className="grn-summary-item">No Of Items <b>{items.length}</b></span><span className="grn-summary-item">Total Qty <b>{totalQty}</b></span><span className="grn-summary-item">Return Value <b>LKR {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</b></span><div className="grn-total-actions"><button type="button" className="cancel-button" onClick={() => { setForm(empty()); setItems([]); setCode(""); setQuantity(""); setError(""); }}><FiRotateCcw /> Clear</button><button type="submit" disabled={saving}><FiSave /> {saving ? "Saving..." : "Save PRN"}</button></div></div></section></form></section>;
+}
+
+function PrnProductLookup() {
+  const [open, setOpen] = useState(false), [location, setLocation] = useState(""), [products, setProducts] = useState([]), [search, setSearch] = useState("");
+  useEffect(() => {
+    const openLookup = async (event) => { setLocation(event.detail.location); setSearch(""); setOpen(true); const response = await window.fetch(`${API_URL}/products`, { credentials: "include" }); const data = await response.json(); if (response.ok) setProducts(data); };
+    window.addEventListener("prn-open-product-lookup", openLookup);
+    return () => window.removeEventListener("prn-open-product-lookup", openLookup);
+  }, []);
+  const visible = products.filter((product) => product.plant === location && [product.productCode, product.productName, product.style, product.color, product.size].filter(Boolean).join(" ").toLowerCase().includes(search.trim().toLowerCase()));
+  if (!open) return null;
+  return <div className="modal-backdrop grn-lookup-backdrop" onClick={() => setOpen(false)}><section className="grn-lookup-modal" onClick={(event) => event.stopPropagation()}><div className="product-image-preview-header"><div><p className="eyebrow">PRODUCT MASTER</p><h2>Select product</h2><p>Search, then double-click an item to add it to the PRN.</p></div><button type="button" className="close-modal" onClick={() => setOpen(false)}><FiX /></button></div><input autoFocus type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search code, name, style, colour..." /><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Product Code</th><th>Product Name</th><th>Style</th><th>Colour</th><th>Size</th><th>Stock</th></tr></thead><tbody>{visible.map((product) => <tr key={product._id} onDoubleClick={() => { window.dispatchEvent(new CustomEvent("prn-select-product", { detail: { productCode: product.productCode } })); setOpen(false); }} title="Double-click to select"><td>{product.productCode}</td><td>{product.productName}</td><td>{product.style || "—"}</td><td>{product.color || "—"}</td><td>{product.size || "—"}</td><td>{Number(product.openingStock || 0).toLocaleString()}</td></tr>)}</tbody></table></div></section></div>;
+}
+
+function PrnHistory() {
+  const [records, setRecords] = useState([]), [error, setError] = useState(""), [busyId, setBusyId] = useState("");
+  const load = async () => { try { const response = await window.fetch(`${API_URL}/prns`, { credentials: "include" }); const data = await response.json(); if (!response.ok) throw new Error(data.message); setRecords(data); } catch (requestError) { setError(requestError.message); } };
+  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const refresh = () => load();
+    const editRow = (event) => { const row = event.target.closest(".prn-history tbody tr"); const prnNumber = row?.cells?.[0]?.textContent; const record = records.find((item) => item.prnNumber === prnNumber); if (record && record.status !== "REVERSED") window.dispatchEvent(new CustomEvent("prn-edit", { detail: record })); };
+    window.addEventListener("prn-records-changed", refresh); document.addEventListener("dblclick", editRow);
+    return () => { window.removeEventListener("prn-records-changed", refresh); document.removeEventListener("dblclick", editRow); };
+  }, [records]);
+  const reverse = async (record) => {
+    const reason = window.prompt(`Reverse ${record.prnNumber}? Enter the reason:`); if (reason === null) return;
+    setBusyId(record._id); setError("");
+    try { const response = await window.fetch(`${API_URL}/prns/${record._id}/reverse`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); await load(); } catch (requestError) { setError(requestError.message); } finally { setBusyId(""); }
+  };
+  return <section className="grn-preview prn-history"><div className="grn-preview-heading"><h2>All PRNs</h2><span>{records.length} records</span></div>{error && <p className="dashboard-error">{error}</p>}<div className="product-table-wrap"><table className="product-table"><thead><tr><th>PRN No</th><th>Date</th><th>Supplier</th><th>GRN Reference</th><th>Qty</th><th>Value</th><th>Status</th><th></th></tr></thead><tbody>{records.map((record) => <tr key={record._id}><td>{record.prnNumber}</td><td>{new Date(record.prnDate).toLocaleDateString("en-GB")}</td><td>{record.supplierName}</td><td>{record.grnNumber || "—"}</td><td>{Number(record.totalQuantity).toLocaleString()}</td><td>LKR {Number(record.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td><td><span className={record.status === "REVERSED" ? "sales-register-status cancelled" : "sales-register-status completed"}>{record.status || "POSTED"}</span></td><td>{record.status !== "REVERSED" && <button type="button" className="cancel-button" disabled={busyId === record._id} onClick={() => reverse(record)}>{busyId === record._id ? "Reversing..." : "Reverse"}</button>}</td></tr>)}{!records.length && <tr><td colSpan="8" className="pivot-empty">No PRNs have been created yet.</td></tr>}</tbody></table></div></section>;
+}
+
+export default function PrnPage({ user }) {
+  return <><PrnCreatePage user={user} /><PrnHistory /><PrnProductLookup /></>;
+}

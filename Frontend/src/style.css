@@ -2428,6 +2428,29 @@ td small {
 .pivot-layout-save-controls input::placeholder { color: #788b9e !important; -webkit-text-fill-color: #788b9e !important; opacity: 1; }
 .pivot-layout-save-controls select option { background: #fff; color: #243c55; }
 .pivot-footer button { min-width: 90px; border: 1px solid #9eb0c3; background: linear-gradient(#fff, #dce6f0) !important; color: #243c55 !important; box-shadow: none !important; }
+.pivot-stock-layout-controls { position: fixed; z-index: 1002; right: 126px; bottom: 9px; display: flex; align-items: center; gap: 7px; }
+.pivot-stock-layout-controls small { position: absolute; right: 0; bottom: 42px; max-width: 310px; overflow: hidden; color: #2f75b5; font-size: .64rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.pivot-stock-layout-controls select,
+.pivot-stock-layout-controls input { width: 190px; min-height: 38px; margin: 0; padding: 7px 9px; border: 1px solid #9eb0c3 !important; border-radius: 5px; background: #fff !important; color: #243c55 !important; -webkit-text-fill-color: #243c55 !important; color-scheme: light; font-size: .7rem; opacity: 1 !important; }
+.pivot-stock-layout-controls input { width: 210px; }
+.pivot-stock-layout-controls input::placeholder { color: #788b9e !important; -webkit-text-fill-color: #788b9e !important; opacity: 1; }
+.pivot-stock-layout-controls select option { background: #fff; color: #243c55; }
+.prn-history { margin-top: 18px !important; }
+.prn-history .product-table th,
+.prn-history .product-table td { padding: 6px 8px !important; line-height: 1.2; }
+.prn-history .product-table tbody tr { height: 42px; }
+.prn-history .cancel-button { min-height: 30px; padding: 5px 9px; font-size: .7rem; }
+.prn-history .product-table { min-width: 0; width: 100%; table-layout: fixed; }
+.prn-history .product-table th:nth-child(1) { width: 14%; }
+.prn-history .product-table th:nth-child(2) { width: 11%; }
+.prn-history .product-table th:nth-child(3) { width: 18%; }
+.prn-history .product-table th:nth-child(4) { width: 16%; }
+.prn-history .product-table th:nth-child(5) { width: 7%; }
+.prn-history .product-table th:nth-child(6) { width: 14%; }
+.prn-history .product-table th:nth-child(7) { width: 10%; }
+.prn-history .product-table th:nth-child(8) { width: 10%; }
+.prn-history .product-table td { overflow: hidden; text-overflow: ellipsis; }
+.pivot-stock-layout-controls button { min-width: 100px; min-height: 38px; margin: 0; padding: 8px 13px; border: 1px solid #9eb0c3; border-radius: 6px; background: linear-gradient(#fff, #dce6f0) !important; color: #243c55 !important; box-shadow: none !important; }
 :root[data-theme="dark"] .sales-register-date-filters input,
 :root[data-theme="dark"] .sales-register-selection select,
 :root[data-theme="dark"] .sales-register-selection input {
