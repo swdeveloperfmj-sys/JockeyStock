@@ -42,10 +42,12 @@ import {
 } from "react-icons/fi";
 import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
+import PrnPage from "./PrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
+import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
 import CustomersPage from "./CustomersPage.jsx";
@@ -2714,6 +2716,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiBox, "Inventory"],
         [FiFileText, "Stock Updates"],
         [FiFileText, "GRN"],
+        [FiFileText, "PRN"],
         [FiBarChart2 , "Sales"],
         [FiUsers, "Customers"],
         [FiFileText, "Sales Order Series"],
@@ -2726,6 +2729,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           [FiBarChart2, "Dashboard"],
           [FiBox, "Stock Update"],
           [FiFileText, "GRN"],
+          [FiFileText, "PRN"],
           [FiPlusCircle, "Create Order"],
           [FiLayers, "Pending Orders"],
           [FiTruck, "Shipment"],
@@ -2742,6 +2746,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [FiBox, "Inventory"],
     [FiFileText, "Stock Updates"],
     [FiFileText, "GRN"],
+    [FiFileText, "PRN"],
     [FiBarChart2, "Sales"],
     [FiUsers, "Customers"],
     [FiFileText, "Sales Order Series"],
@@ -2949,6 +2954,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Review stock update history."
             : view === "GRN"
               ? "Create a goods received note."
+              : view === "PRN"
+                ? "Create a purchase return note."
             : view === "GRN Report"
               ? "Goods received note report."
             : view === "Sales Register"
@@ -3005,6 +3012,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <StockUpdatesHistoryPage />
     ) : view === "GRN" && (admin || locationManager) ? (
       <GrnPageNew user={user} />
+    ) : view === "PRN" && (admin || locationManager) ? (
+      <PrnPage user={user} />
     ) : view === "GRN Report" && (admin || locationManager) ? (
       <GrnReportPage user={user} />
     ) : view === "Sales Register" && (admin || locationManager) ? (
@@ -3059,6 +3068,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         )}
         {admin && view === "Dashboard" && <>
           <GrnSeriesSettings />
+          <PrnSeriesSettings />
           <SalesOrderSeriesSettings />
           <CustomerSeriesSettings />
         </>}
@@ -3883,9 +3893,17 @@ function ProductMaster({ open }) {
       );
       const seenCodes = new Set();
       const previewRows = importedRows.map((row) => {
+        const normalizedRow = Object.fromEntries(
+          productImportColumns.map(({ key }) => [
+            key,
+            productPriceFields.includes(key)
+              ? row[key]
+              : String(row[key] || "").trim().toUpperCase(),
+          ]),
+        );
         const issues = [];
-        const productCode = String(row.productCode || "").trim();
-        const details = parseProductNameDetails(row.productName);
+        const productCode = normalizedRow.productCode;
+        const details = parseProductNameDetails(normalizedRow.productName);
         if (!/^\d{13}$/.test(productCode)) {
           issues.push("Product Code must contain exactly 13 numbers.");
         }
@@ -3901,13 +3919,13 @@ function ProductMaster({ open }) {
           issues.push("Invalid Product Name format.");
         }
         if (
-          !allowedProductGenders.includes(normalizeProductGender(row.gender))
+          !allowedProductGenders.includes(normalizeProductGender(normalizedRow.gender))
         ) {
           issues.push("Invalid Gender.");
         }
         if (
           ["categoryCode", "subCategoryCode", "supplierCode"].some(
-            (field) => !String(row[field] || "").trim(),
+            (field) => !String(normalizedRow[field] || "").trim(),
           )
         ) {
           issues.push("A required classification field is empty.");
@@ -3915,17 +3933,16 @@ function ProductMaster({ open }) {
         if (
           productPriceFields.some(
             (field) =>
-              String(row[field] ?? "").trim() === "" ||
-              !Number.isFinite(Number(row[field])) ||
-              Number(row[field]) < 0,
+              String(normalizedRow[field] ?? "").trim() === "" ||
+              !Number.isFinite(Number(normalizedRow[field])) ||
+              Number(normalizedRow[field]) < 0,
           )
         ) {
           issues.push("One or more prices are invalid.");
         }
         return {
-          ...row,
-          productName: String(row.productName || "").toUpperCase(),
-          gender: normalizeProductGender(row.gender),
+          ...normalizedRow,
+          gender: normalizeProductGender(normalizedRow.gender),
           details: details || emptyProductBreakdown(),
           issues,
         };

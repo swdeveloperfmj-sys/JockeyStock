@@ -17,6 +17,7 @@ import Notification from './models/Notification.js';
 import StockUpdate from './models/StockUpdate.js';
 import Counter from './models/Counter.js';
 import GoodsReceivedNote from './models/GoodsReceivedNote.js';
+import PurchaseReturnNote from './models/PurchaseReturnNote.js';
 import Customer from './models/Customer.js';
 import SalesPivotLayout from './models/SalesPivotLayout.js';
 import StockBalancePivotLayout from './models/StockBalancePivotLayout.js';
@@ -976,7 +977,7 @@ app.patch('/api/orders/:id', async (req, res) => {
 });
 
 const allowedSidebarPermissions = new Set([
-  'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'Sales', 'Customers',
+  'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'PRN', 'Sales', 'Customers',
   'Sales Order Series', 'Users', 'Locations', 'Roles', 'Stock Update',
   'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report'
 ]);
@@ -1214,6 +1215,7 @@ const formatGrnNumber = (value, counter = {}) => {
   const padding = Number(counter.padding || 6);
   return `${prefix}${String(value).padStart(padding, '0')}`;
 };
+const formatPrnNumber = (value, counter = {}) => `${counter.prefix ?? 'PRN-'}${String(value).padStart(Number(counter.padding || 6), '0')}`;
 const formatSalesOrderNumber = (value, counter = {}) => {
   const prefix = counter.prefix ?? 'SO-';
   const padding = Number(counter.padding || 6);
@@ -1457,6 +1459,29 @@ app.put('/api/grns/number-series', async (req, res) => {
     nextNumber: formatGrnNumber(counter.value + 1, counter)
   });
 });
+app.get('/api/prns/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the PRN number series.' });
+  const counter = await Counter.findOne({ key: 'PRN' }).lean();
+  const settings = counter || { value: 0, prefix: 'PRN-', padding: 6 };
+  res.json({ prefix: settings.prefix ?? 'PRN-', padding: Number(settings.padding || 6), currentNumber: Number(settings.value || 0) > 0 ? formatPrnNumber(settings.value, settings) : null, nextNumber: formatPrnNumber(Number(settings.value || 0) + 1, settings) });
+});
+app.put('/api/prns/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the PRN number series.' });
+  const nextNumber = String(req.body.nextNumber || '').trim().toUpperCase(), match = nextNumber.match(/^(.*?)(\d+)$/);
+  if (!match || nextNumber.length > 50) return res.status(400).json({ message: 'Enter a pattern ending with numbers, for example PRN-000001.' });
+  const [, prefix, digits] = match, startingValue = Number(digits);
+  if (!Number.isSafeInteger(startingValue) || startingValue < 1 || digits.length > 12) return res.status(400).json({ message: 'The PRN starting number must be between 1 and 12 digits.' });
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existingNumbers = await PurchaseReturnNote.find({ prnNumber: new RegExp(`^${escapedPrefix}\\d+$`, 'i') }).select('prnNumber').lean();
+  const highestExisting = existingNumbers.reduce((highest, prn) => { const suffix = String(prn.prnNumber).slice(prefix.length); return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest; }, 0);
+  if (startingValue <= highestExisting) return res.status(409).json({ message: `The next number must be greater than the existing ${formatPrnNumber(highestExisting, { prefix, padding: digits.length })}.` });
+  const counter = await Counter.findOneAndUpdate({ key: 'PRN' }, { $set: { value: startingValue - 1, prefix, padding: digits.length } }, { new: true, upsert: true, setDefaultsOnInsert: true });
+  res.json({ prefix: counter.prefix, padding: counter.padding, currentNumber: counter.value > 0 ? formatPrnNumber(counter.value, counter) : null, nextNumber: formatPrnNumber(counter.value + 1, counter) });
+});
 app.get('/api/grns', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -1541,6 +1566,51 @@ app.post('/api/grns', async (req, res) => {
     res.status(400).json({ message: error.message || 'Unable to save GRN.' });
   } finally { await dbSession.endSession(); }
 });
+app.get('/api/prns/next-number', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create PRNs.' });
+  const counter = await Counter.findOne({ key: 'PRN' });
+  res.json({ prnNumber: formatPrnNumber((counter?.value || 0) + 1, counter || {}) });
+});
+app.get('/api/prns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view PRNs.' });
+  const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
+  res.json(await PurchaseReturnNote.find(filter).sort({ prnDate: -1, createdAt: -1 }).lean());
+});
+app.post('/api/prns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to create PRNs.' });
+  const { supplierCode, supplierName, grnNumber = '', prnDate, location, remarks = '', items } = req.body;
+  if (!supplierCode?.trim() || !supplierName?.trim() || !prnDate || !location?.trim() || !Array.isArray(items) || !items.length) return res.status(400).json({ message: 'Supplier, PRN date, location, and at least one item are required.' });
+  if (user.role === 'LOCATION_MANAGER' && location !== user.location) return res.status(403).json({ message: 'Location Managers can create PRNs only for their own location.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let prn; const changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      const counter = await Counter.findOneAndUpdate({ key: 'PRN' }, { $inc: { value: 1 }, $setOnInsert: { prefix: 'PRN-', padding: 6 } }, { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession });
+      const prnItems = [];
+      for (const item of items) {
+        if (!mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1) throw new Error('Each item needs a valid product and whole return quantity.');
+        const product = await Product.findOne({ _id: item.productId, plant: location }).session(dbSession);
+        if (!product) throw new Error('One of the selected products does not belong to this location.');
+        const quantity = Number(item.quantity); if (Number(product.openingStock || 0) < quantity) throw new Error(`${product.productCode} does not have enough available stock.`);
+        const costPrice = Number(product.costPrice || 0);
+        const updated = await Product.findByIdAndUpdate(product._id, { $inc: { openingStock: -quantity } }, { new: true, runValidators: true, session: dbSession });
+        changedProducts.push(updated); prnItems.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantity, costPrice, amount: quantity * costPrice, reason: String(item.reason || '').trim() });
+      }
+      const totalQuantity = prnItems.reduce((sum, item) => sum + item.quantity, 0), totalAmount = prnItems.reduce((sum, item) => sum + item.amount, 0);
+      [prn] = await PurchaseReturnNote.create([{ prnNumber: formatPrnNumber(counter.value, counter), grnNumber: String(grnNumber).trim(), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), prnDate: new Date(prnDate), location, remarks: String(remarks).trim(), createdById: user._id, createdByName: user.name, items: prnItems, totalQuantity, totalAmount }], { session: dbSession });
+      await StockUpdate.insertMany(prnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: -item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })) , { session: dbSession });
+    });
+    publishStockUpdate(changedProducts);
+    res.status(201).json({ ...prn.toObject(), updatedProducts: changedProducts.map((product) => ({ productId: String(product._id), openingStock: product.openingStock })) });
+  } catch (error) { res.status(400).json({ message: error.message || 'Unable to save PRN.' }); } finally { await dbSession.endSession(); }
+});
+
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));
   data.plant = INVENTORY_LOCATION;
@@ -1568,15 +1638,14 @@ app.post('/api/products/bulk', async (req, res) => {
   const seenCodes = new Set();
   const priceFields = ['costPrice', 'sellingPrice'];
   const requiredTextFields = ['productName', 'gender', 'categoryCode', 'subCategoryCode', 'supplierCode'];
+  const textFields = productFields.filter((field) => !priceFields.includes(field));
 
   rows.forEach((row, index) => {
     const rowNumber = Number(row.rowNumber) || index + 2;
     const data = Object.fromEntries(productFields.map((field) => [field, row[field]]));
-    data.productCode = String(data.productCode ?? '').trim();
-    requiredTextFields.forEach((field) => { data[field] = String(data[field] ?? '').trim(); });
-    data.subSubCategory = String(data.subSubCategory ?? '').trim();
+    textFields.forEach((field) => { data[field] = String(data[field] ?? '').trim().toUpperCase(); });
     data.gender = normalizeGender(data.gender);
-    data.supplierCode = (data.supplierCode || 'JOCKEY').toUpperCase();
+    data.supplierCode = data.supplierCode || 'JOCKEY';
 
     if (!/^\d{13}$/.test(data.productCode)) {
       errors.push({ row: rowNumber, productCode: data.productCode, message: 'Product Code must contain exactly 13 numbers.' });
