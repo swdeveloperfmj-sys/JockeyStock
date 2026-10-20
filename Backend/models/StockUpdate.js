@@ -8,7 +8,10 @@ const stockUpdateSchema = new mongoose.Schema({
   resultingStock: { type: Number, required: true, min: 0 },
   location: { type: String, required: true, trim: true, index: true },
   managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  managerName: { type: String, required: true, trim: true }
+  managerName: { type: String, required: true, trim: true },
+  documentNo: { type: String, trim: true, default: '' },
+  transactionType: { type: String, trim: true, default: 'STOCK UPDATE' },
+  description: { type: String, trim: true, default: '' }
 }, { timestamps: true });
 
 stockUpdateSchema.index({ createdAt: -1 });

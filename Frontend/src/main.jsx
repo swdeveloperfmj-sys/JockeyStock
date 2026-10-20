@@ -47,6 +47,7 @@ import SalesReturnPage from "./SalesReturnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
+import StockMovementDetailsPage from "./StockMovementDetailsPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
@@ -196,7 +197,7 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
   LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
@@ -2616,7 +2617,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   // Sales Return was introduced after some Super Admin accounts already had a
   // saved permission list. Keep it available to Super Admins without requiring
   // each existing account to be edited once.
-  const canSeeSidebar = (permission) => permission === "Sales Return" && user.role === "SUPER_ADMIN"
+  const canSeeSidebar = (permission) => ["Sales Return", "Stock Movement Details"].includes(permission) && user.role === "SUPER_ADMIN"
     ? true
     : !permissionConfigured || user.sidebarPermissions.includes(permission);
   const [c, setC] = useState(false),
@@ -2971,6 +2972,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Sales register report."
             : view === "Stock Balance Report"
               ? "Stock balance report."
+            : view === "Stock Movement Details"
+              ? "Review product stock movements."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -3029,6 +3032,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <SalesRegisterPage />
     ) : view === "Stock Balance Report" && (admin || canSeeSidebar("Stock Balance Report")) ? (
       <StockBalanceReportPage />
+    ) : view === "Stock Movement Details" && (admin || canSeeSidebar("Stock Movement Details")) ? (
+      <StockMovementDetailsPage user={user} />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
@@ -3453,7 +3458,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                           </div>
                         )}
                       </>}
-                      {(admin || canSeeSidebar("Stock Balance Report")) && <>
+                      {(admin || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Movement Details")) && <>
                         <button
                           type="button"
                           className="sidebar-menu-trigger sidebar-submenu-trigger"
@@ -3478,6 +3483,19 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                               <FiFileText />
                               <span>Stock Balance Report</span>
                             </a>
+                            {canSeeSidebar("Stock Movement Details") && <a
+                              className={`sidebar-report-link${view === "Stock Movement Details" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Stock Movement Details");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Stock Movement Details</span>
+                            </a>}
                           </div>
                         )}
                       </>}
