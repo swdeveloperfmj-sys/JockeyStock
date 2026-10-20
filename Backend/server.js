@@ -978,7 +978,7 @@ app.patch('/api/orders/:id', async (req, res) => {
 
 const allowedSidebarPermissions = new Set([
   'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'PRN', 'Sales', 'Customers',
-  'Sales Order Series', 'Users', 'Locations', 'Roles', 'Stock Update',
+  'Users', 'Locations', 'Roles', 'Stock Update',
   'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report'
 ]);
 const normalizeSidebarPermissions = (value) => Array.isArray(value)

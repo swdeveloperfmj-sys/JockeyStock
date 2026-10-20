@@ -195,7 +195,7 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "Sales", "Customers", "Sales Order Series", "Users", "Locations", "Roles", "Sales Register", "GRN Report"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report"],
   LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
@@ -2719,7 +2719,6 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiFileText, "PRN"],
         [FiBarChart2 , "Sales"],
         [FiUsers, "Customers"],
-        [FiFileText, "Sales Order Series"],
         [FiUsers, "Users"],
         [FiMapPin, "Locations"],
         [FiUsers, "Roles"],
@@ -2749,7 +2748,6 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [FiFileText, "PRN"],
     [FiBarChart2, "Sales"],
     [FiUsers, "Customers"],
-    [FiFileText, "Sales Order Series"],
     [FiUsers, "Users"],
     [FiMapPin, "Locations"],
     [FiUsers, "Roles"],
@@ -2972,8 +2970,6 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 ? "Create sales order."
             : view === "Sales"
               ? "Sales history."
-              : view === "Sales Order Series"
-                ? "Configure automatic sales order numbers."
                 : `${timeGreeting}, ${user.name.split(" ")[0]}.`}
         </h1>
       </div>
@@ -3041,8 +3037,6 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       />
     ) : view === "Sales" && !locationManager ? (
       <SalesHistoryPage refreshKey={orderRefreshKey} isAdmin={admin} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
-    ) : view === "Sales Order Series" && admin ? (
-      <SalesOrderSeriesSettings />
     ) : (
       <>
         <section className="stats">
