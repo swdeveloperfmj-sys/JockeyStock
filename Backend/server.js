@@ -19,6 +19,7 @@ import Counter from './models/Counter.js';
 import GoodsReceivedNote from './models/GoodsReceivedNote.js';
 import Customer from './models/Customer.js';
 import SalesPivotLayout from './models/SalesPivotLayout.js';
+import StockBalancePivotLayout from './models/StockBalancePivotLayout.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -392,6 +393,31 @@ app.get('/api/reports/sales-register', async (req, res) => {
   res.json(orders);
 });
 
+// Super Admin's current inventory snapshot.  The Sales Register's report
+// controls are reused on the client for filtering, exporting and totals.
+app.get('/api/reports/stock-balance', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view the stock balance report.' });
+  const filter = {};
+  const { from, to } = req.query;
+  if (from || to) {
+    filter.updatedAt = {};
+    if (from) filter.updatedAt.$gte = new Date(`${from}T00:00:00.000+05:30`);
+    if (to) filter.updatedAt.$lte = new Date(`${to}T23:59:59.999+05:30`);
+  }
+  const products = await Product.find(filter).sort({ productCode: 1, productName: 1 }).lean();
+  res.json(products.map((product) => ({
+    id: String(product._id), productCode: product.productCode || product.sku || '', productName: product.productName || product.name || '',
+    style: product.style || '', packingQuantity: product.packingQuantity || '', cartonQuantity: product.cartonQuantity || '',
+    location: product.plant || '', gender: product.gender || '', category: product.categoryCode || product.category || '',
+    subCategory: product.subCategoryCode || '', subSubCategory: product.subSubCategory || '', supplier: product.supplierCode || '',
+    colour: product.color || '', size: product.size || '', stockBalance: Number(product.openingStock || 0),
+    costPrice: Number(product.costPrice || 0), stockValue: Number(product.openingStock || 0) * Number(product.costPrice || 0),
+    lastUpdated: product.updatedAt,
+  })));
+});
+
 const salesPivotDimensions = new Set([
   'Product Code', 'Product Name', 'Style', 'Packing Quantity', 'Carton Quantity',
   'Location', 'Gender', 'Category', 'SubCategory', 'SubSubCategory', 'Document No',
@@ -399,6 +425,32 @@ const salesPivotDimensions = new Set([
   'Year', 'Quarter', 'Month', 'Week', 'Day', 'Hour'
 ]);
 const salesPivotValues = new Set(['Qty', 'Gross Amount', 'Discount Amount', 'Net Amount', 'Selling Price', 'Cost Price']);
+const stockBalancePivotDimensions = new Set(['productCode', 'productName', 'style', 'packingQuantity', 'cartonQuantity', 'location', 'gender', 'category', 'subCategory', 'subSubCategory', 'supplier', 'colour', 'size']);
+const stockBalancePivotValues = new Set(['stockBalance', 'costPrice', 'stockValue']);
+
+app.get('/api/reports/stock-balance/pivot-layouts', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view stock balance layouts.' });
+  res.json(await StockBalancePivotLayout.find({ userId: user._id }).sort({ updatedAt: -1 }).lean());
+});
+
+app.post('/api/reports/stock-balance/pivot-layouts', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can save stock balance layouts.' });
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ message: 'Enter a layout name or remark before saving.' });
+  if (name.length > 100) return res.status(400).json({ message: 'Layout name must be 100 characters or less.' });
+  const dimension = (value) => stockBalancePivotDimensions.has(value) ? value : null;
+  const value = (item) => stockBalancePivotValues.has(item) ? item : null;
+  const layout = await StockBalancePivotLayout.findOneAndUpdate(
+    { userId: user._id, name },
+    { $set: { rowField: dimension(req.body.rowField), columnField: dimension(req.body.columnField), valueField: value(req.body.valueField), filterField: dimension(req.body.filterField), filterValue: typeof req.body.filterValue === 'string' ? req.body.filterValue : '' } },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+  ).lean();
+  res.json(layout);
+});
 
 app.get('/api/reports/sales-register/pivot-layouts', async (req, res) => {
   const user = await currentUser(req);

@@ -44,6 +44,7 @@ import "./style.css";
 import GrnPageNew from "./GrnPage.jsx";
 import GrnReportPage from "./GrnReportPage.jsx";
 import SalesRegisterPage from "./SalesRegisterPage.jsx";
+import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
@@ -2625,6 +2626,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [reportOpen, setReportOpen] = useState(false),
     [inventorySalesOpen, setInventorySalesOpen] = useState(false),
     [salesReportsOpen, setSalesReportsOpen] = useState(false),
+    [stockReportsOpen, setStockReportsOpen] = useState(false),
     [transactionInquiryOpen, setTransactionInquiryOpen] = useState(false),
     [dashboardData, setDashboardData] = useState(null),
     [dashboardError, setDashboardError] = useState(""),
@@ -2951,6 +2953,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Goods received note report."
             : view === "Sales Register"
               ? "Sales register report."
+            : view === "Stock Balance Report"
+              ? "Stock balance report."
             : view === "Stock Update"
               ? "Update factory stock."
               : view === "Pending Orders"
@@ -3005,6 +3009,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <GrnReportPage user={user} />
     ) : view === "Sales Register" && (admin || locationManager) ? (
       <SalesRegisterPage />
+    ) : view === "Stock Balance Report" && admin ? (
+      <StockBalanceReportPage />
     ) : view === "Locations" ? (
       <SettingsPage type="locations" />
     ) : view === "Roles" ? (
@@ -3369,7 +3375,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {((permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report"))) ||
+          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report"))) ||
             (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
@@ -3426,6 +3432,34 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                             >
                               <FiFileText />
                               <span>Sales Register</span>
+                            </a>
+                          </div>
+                        )}
+                      </>}
+                      {admin && <>
+                        <button
+                          type="button"
+                          className="sidebar-menu-trigger sidebar-submenu-trigger"
+                          aria-expanded={stockReportsOpen}
+                          onClick={() => setStockReportsOpen((open) => !open)}
+                        >
+                          <span>Stock Reports</span>
+                          <FiChevronDown className={`sidebar-menu-chevron${stockReportsOpen ? " is-open" : ""}`} />
+                        </button>
+                        {stockReportsOpen && (
+                          <div className="sidebar-submenu sidebar-submenu-deep">
+                            <a
+                              className={`sidebar-report-link${view === "Stock Balance Report" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Stock Balance Report");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Stock Balance Report</span>
                             </a>
                           </div>
                         )}
