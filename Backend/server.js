@@ -1610,6 +1610,64 @@ app.post('/api/prns', async (req, res) => {
     res.status(201).json({ ...prn.toObject(), updatedProducts: changedProducts.map((product) => ({ productId: String(product._id), openingStock: product.openingStock })) });
   } catch (error) { res.status(400).json({ message: error.message || 'Unable to save PRN.' }); } finally { await dbSession.endSession(); }
 });
+app.post('/api/prns/:id/reverse', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to reverse PRNs.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid PRN.' });
+  const reversalReason = String(req.body.reason || '').trim();
+  if (reversalReason.length < 3 || reversalReason.length > 500) return res.status(400).json({ message: 'Enter a reversal reason between 3 and 500 characters.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let prn; const changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      prn = await PurchaseReturnNote.findById(req.params.id).session(dbSession);
+      if (!prn) throw new Error('PRN not found.');
+      if (user.role === 'LOCATION_MANAGER' && prn.location !== user.location) throw new Error('You can reverse PRNs only for your own location.');
+      if (prn.status === 'REVERSED') throw new Error('This PRN has already been reversed.');
+      for (const item of prn.items) {
+        const updated = await Product.findOneAndUpdate({ _id: item.productId, plant: prn.location }, { $inc: { openingStock: Number(item.quantity) } }, { new: true, session: dbSession });
+        if (!updated) throw new Error(`Product ${item.productCode} is no longer available at this location.`);
+        changedProducts.push(updated);
+      }
+      prn.status = 'REVERSED'; prn.reversedAt = new Date(); prn.reversedById = user._id; prn.reversedByName = user.name; prn.reversalReason = reversalReason;
+      await prn.save({ session: dbSession });
+      await StockUpdate.insertMany(prn.items.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: Number(item.quantity), resultingStock: changedProducts[index].openingStock, location: prn.location, managerId: user._id, managerName: user.name })), { session: dbSession });
+    });
+    publishStockUpdate(changedProducts);
+    res.json(prn);
+  } catch (error) { res.status(400).json({ message: error.message || 'Unable to reverse PRN.' }); } finally { await dbSession.endSession(); }
+});
+app.put('/api/prns/:id', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to update PRNs.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid PRN.' });
+  const { supplierCode, supplierName, grnNumber = '', prnDate, location, remarks = '', items } = req.body;
+  if (!supplierCode?.trim() || !supplierName?.trim() || !prnDate || !location?.trim() || !Array.isArray(items) || !items.length) return res.status(400).json({ message: 'Supplier, PRN date, location, and at least one item are required.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let prn; const changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      prn = await PurchaseReturnNote.findById(req.params.id).session(dbSession);
+      if (!prn) throw new Error('PRN not found.');
+      if (prn.status === 'REVERSED') throw new Error('A reversed PRN cannot be edited.');
+      if (user.role === 'LOCATION_MANAGER' && prn.location !== user.location) throw new Error('You can update PRNs only for your own location.');
+      if (location !== prn.location) throw new Error('Reverse this PRN and create a new one to use a different location.');
+      const quantities = new Map(prn.items.map((item) => [String(item.productId), Number(item.quantity)]));
+      for (const item of items) { if (!mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1) throw new Error('Each item needs a valid product and whole return quantity.'); quantities.set(String(item.productId), -Number(item.quantity) + (quantities.get(String(item.productId)) || 0)); }
+      const productIds = [...quantities.keys()]; const products = await Product.find({ _id: { $in: productIds }, plant: location }).session(dbSession);
+      if (products.length !== productIds.length) throw new Error('One of the selected products does not belong to this location.');
+      for (const product of products) { const adjustment = quantities.get(String(product._id)) || 0; if (Number(product.openingStock || 0) + adjustment < 0) throw new Error(`${product.productCode} does not have enough available stock.`); }
+      const productById = new Map(products.map((product) => [String(product._id), product]));
+      const prnItems = items.map((item) => { const product = productById.get(String(item.productId)); const quantity = Number(item.quantity), costPrice = Number(product.costPrice || 0); return { productId: product._id, productCode: product.productCode, productName: product.productName, quantity, costPrice, amount: quantity * costPrice, reason: String(item.reason || '').trim() }; });
+      for (const product of products) { const adjustment = quantities.get(String(product._id)) || 0; if (!adjustment) continue; changedProducts.push(await Product.findByIdAndUpdate(product._id, { $inc: { openingStock: adjustment } }, { new: true, session: dbSession })); }
+      prn.supplierCode = supplierCode.trim(); prn.supplierName = supplierName.trim(); prn.grnNumber = String(grnNumber).trim(); prn.prnDate = new Date(prnDate); prn.remarks = String(remarks).trim(); prn.items = prnItems; prn.totalQuantity = prnItems.reduce((sum, item) => sum + item.quantity, 0); prn.totalAmount = prnItems.reduce((sum, item) => sum + item.amount, 0); await prn.save({ session: dbSession });
+      await StockUpdate.insertMany(changedProducts.map((product) => ({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: quantities.get(String(product._id)), resultingStock: product.openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
+    });
+    publishStockUpdate(changedProducts); res.json(prn);
+  } catch (error) { res.status(400).json({ message: error.message || 'Unable to update PRN.' }); } finally { await dbSession.endSession(); }
+});
 
 app.post('/api/products', async (req, res) => {
   const data = Object.fromEntries(productFields.map((field) => [field, req.body[field]]));

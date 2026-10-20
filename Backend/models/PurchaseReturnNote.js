@@ -22,7 +22,12 @@ const purchaseReturnNoteSchema = new mongoose.Schema({
   createdByName: { type: String, required: true },
   items: { type: [prnItemSchema], validate: [(items) => items.length > 0, 'At least one item is required.'] },
   totalQuantity: { type: Number, required: true, min: 1 },
-  totalAmount: { type: Number, required: true, min: 0 }
+  totalAmount: { type: Number, required: true, min: 0 },
+  status: { type: String, enum: ['POSTED', 'REVERSED'], default: 'POSTED', index: true },
+  reversedAt: { type: Date, default: null },
+  reversedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  reversedByName: { type: String, trim: true, default: '' },
+  reversalReason: { type: String, trim: true, default: '' }
 }, { timestamps: true });
 
 export default mongoose.model('PurchaseReturnNote', purchaseReturnNoteSchema);
