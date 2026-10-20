@@ -7,7 +7,12 @@ const stockBalancePivotLayoutSchema = new mongoose.Schema({
   columnField: { type: String, default: null },
   valueField: { type: String, default: null },
   filterField: { type: String, default: null },
-  filterValue: { type: String, default: '' }
+  filterValue: { type: String, default: '' },
+  rowFields: { type: [String], default: [] },
+  columnFields: { type: [String], default: [] },
+  valueFields: { type: [String], default: [] },
+  filterFields: { type: [String], default: [] },
+  filterValues: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
 stockBalancePivotLayoutSchema.index({ userId: 1, name: 1 }, { unique: true });

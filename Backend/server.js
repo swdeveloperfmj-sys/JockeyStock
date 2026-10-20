@@ -18,6 +18,7 @@ import StockUpdate from './models/StockUpdate.js';
 import Counter from './models/Counter.js';
 import GoodsReceivedNote from './models/GoodsReceivedNote.js';
 import PurchaseReturnNote from './models/PurchaseReturnNote.js';
+import SalesReturn from './models/SalesReturn.js';
 import Customer from './models/Customer.js';
 import SalesPivotLayout from './models/SalesPivotLayout.js';
 import StockBalancePivotLayout from './models/StockBalancePivotLayout.js';
@@ -418,6 +419,24 @@ app.get('/api/reports/stock-balance', async (req, res) => {
     lastUpdated: product.updatedAt,
   })));
 });
+app.get('/api/reports/bin-card', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view stock movement details.' });
+  const productCode = String(req.query.productCode || '').trim();
+  const location = user.role === 'LOCATION_MANAGER' ? user.location : String(req.query.location || '').trim();
+  if (!productCode || !location) return res.status(400).json({ message: 'Product code and location are required.' });
+  const product = await Product.findOne({ $or: [{ productCode }, { sku: productCode }], plant: location }).lean();
+  if (!product) return res.status(404).json({ message: 'Product not found at the selected location.' });
+  const filter = { productId: product._id, location };
+  if (req.query.from || req.query.to) {
+    filter.createdAt = {};
+    if (req.query.from) filter.createdAt.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`);
+    if (req.query.to) filter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`);
+  }
+  const movements = await StockUpdate.find(filter).sort({ createdAt: 1 }).lean();
+  res.json({ product: { productCode: product.productCode, productName: product.productName, costPrice: product.costPrice, sellingPrice: product.sellingPrice, location: product.plant }, movements });
+});
 
 const salesPivotDimensions = new Set([
   'Product Code', 'Product Name', 'Style', 'Packing Quantity', 'Carton Quantity',
@@ -445,9 +464,12 @@ app.post('/api/reports/stock-balance/pivot-layouts', async (req, res) => {
   if (name.length > 100) return res.status(400).json({ message: 'Layout name must be 100 characters or less.' });
   const dimension = (value) => stockBalancePivotDimensions.has(value) ? value : null;
   const value = (item) => stockBalancePivotValues.has(item) ? item : null;
+  const dimensions = (items) => [...new Set((Array.isArray(items) ? items : []).filter((item) => stockBalancePivotDimensions.has(item)))];
+  const values = (items) => [...new Set((Array.isArray(items) ? items : []).filter((item) => stockBalancePivotValues.has(item)))];
+  const filterValues = Object.fromEntries(Object.entries(req.body.filterValues || {}).filter(([field, item]) => stockBalancePivotDimensions.has(field) && typeof item === 'string'));
   const layout = await StockBalancePivotLayout.findOneAndUpdate(
     { userId: user._id, name },
-    { $set: { rowField: dimension(req.body.rowField), columnField: dimension(req.body.columnField), valueField: value(req.body.valueField), filterField: dimension(req.body.filterField), filterValue: typeof req.body.filterValue === 'string' ? req.body.filterValue : '' } },
+    { $set: { rowField: dimension(req.body.rowField), columnField: dimension(req.body.columnField), valueField: value(req.body.valueField), filterField: dimension(req.body.filterField), filterValue: typeof req.body.filterValue === 'string' ? req.body.filterValue : '', rowFields: dimensions(req.body.rowFields), columnFields: dimensions(req.body.columnFields), valueFields: values(req.body.valueFields), filterFields: dimensions(req.body.filterFields), filterValues } },
     { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
   ).lean();
   res.json(layout);
@@ -883,6 +905,8 @@ app.post('/api/orders', async (req, res) => {
     const changedProducts = await Product.find({
       _id: { $in: createdOrder.items.map((item) => item.productId) }
     }).select('_id productCode productName plant openingStock updatedAt');
+    const changedProductById = new Map(changedProducts.map((product) => [String(product._id), product]));
+    await StockUpdate.insertMany(createdOrder.items.map((item) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: -Number(item.quantity), resultingStock: changedProductById.get(String(item.productId))?.openingStock ?? 0, location: createdOrder.location, managerId: user._id, managerName: user.name, documentNo: createdOrder.orderNumber, transactionType: 'SALE', description: `Sale to ${createdOrder.customerName}` })));
     publishStockUpdate(changedProducts);
     publishOrderUpdate();
     const locationManagers = await User.find({ role: 'LOCATION_MANAGER', location: createdOrder.location }).select('_id email contactNumber');
@@ -977,9 +1001,9 @@ app.patch('/api/orders/:id', async (req, res) => {
 });
 
 const allowedSidebarPermissions = new Set([
-  'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'PRN', 'Sales', 'Customers',
+  'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'PRN', 'Sales Return', 'Sales', 'Customers',
   'Users', 'Locations', 'Roles', 'Stock Update',
-  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report'
+  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report', 'Stock Balance Report', 'Stock Movement Details'
 ]);
 const normalizeSidebarPermissions = (value) => Array.isArray(value)
   ? [...new Set(value.map(String).filter((permission) => allowedSidebarPermissions.has(permission)))]
@@ -1542,7 +1566,7 @@ app.post('/api/grns', async (req, res) => {
       const totalQuantity = grnItems.reduce((total, item) => total + item.quantity, 0);
       const totalAmount = grnItems.reduce((total, item) => total + item.amount, 0);
       [grn] = await GoodsReceivedNote.create([{ grnNumber: formatGrnNumber(counter.value, counter), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), remarks: remarks.trim(), grnDate: new Date(grnDate), location, createdById: user._id, createdByName: user.name, items: grnItems, totalQuantity, totalAmount }], { session: dbSession });
-      await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })), { session: dbSession });
+      await StockUpdate.insertMany(grnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name, documentNo: grn.grnNumber, transactionType: 'GRN', description: `Goods received from ${supplierName}` })), { session: dbSession });
     });
     publishStockUpdate(changedProducts);
     try {
@@ -1604,7 +1628,7 @@ app.post('/api/prns', async (req, res) => {
       }
       const totalQuantity = prnItems.reduce((sum, item) => sum + item.quantity, 0), totalAmount = prnItems.reduce((sum, item) => sum + item.amount, 0);
       [prn] = await PurchaseReturnNote.create([{ prnNumber: formatPrnNumber(counter.value, counter), grnNumber: String(grnNumber).trim(), supplierCode: supplierCode.trim(), supplierName: supplierName.trim(), prnDate: new Date(prnDate), location, remarks: String(remarks).trim(), createdById: user._id, createdByName: user.name, items: prnItems, totalQuantity, totalAmount }], { session: dbSession });
-      await StockUpdate.insertMany(prnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: -item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name })) , { session: dbSession });
+      await StockUpdate.insertMany(prnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: -item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name, documentNo: prn.prnNumber, transactionType: 'PRN', description: `Purchase return to ${supplierName}` })) , { session: dbSession });
     });
     publishStockUpdate(changedProducts);
     res.status(201).json({ ...prn.toObject(), updatedProducts: changedProducts.map((product) => ({ productId: String(product._id), openingStock: product.openingStock })) });
@@ -1667,6 +1691,108 @@ app.put('/api/prns/:id', async (req, res) => {
     });
     publishStockUpdate(changedProducts); res.json(prn);
   } catch (error) { res.status(400).json({ message: error.message || 'Unable to update PRN.' }); } finally { await dbSession.endSession(); }
+});
+
+const formatSalesReturnNumber = (value, counter = {}) => `${counter.prefix ?? 'SRN-'}${String(value).padStart(Number(counter.padding || 6), '0')}`;
+const canManageSalesReturns = (user) => ['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user?.role);
+
+app.get('/api/sales-returns/next-number', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!canManageSalesReturns(user)) return res.status(403).json({ message: 'You are not allowed to create sales returns.' });
+  const counter = await Counter.findOne({ key: 'SALES_RETURN' });
+  res.json({ returnNumber: formatSalesReturnNumber((counter?.value || 0) + 1, counter || {}) });
+});
+app.get('/api/sales-returns/invoices', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!canManageSalesReturns(user)) return res.status(403).json({ message: 'You are not allowed to view invoices.' });
+  const filter = { status: 'COMPLETED', ...(user.role === 'LOCATION_MANAGER' ? { location: user.location } : {}) };
+  res.json(await Order.find(filter).select('orderNumber customerName location items totalQuantity totalAmount createdAt').sort({ createdAt: -1 }).limit(500).lean());
+});
+app.get('/api/sales-returns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!canManageSalesReturns(user)) return res.status(403).json({ message: 'You are not allowed to view sales returns.' });
+  const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
+  res.json(await SalesReturn.find(filter).sort({ returnDate: -1, createdAt: -1 }).limit(1000).lean());
+});
+app.post('/api/sales-returns', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!canManageSalesReturns(user)) return res.status(403).json({ message: 'You are not allowed to create sales returns.' });
+  const { sourceType, invoiceOrderId, returnDate, location, remarks = '', items } = req.body;
+  if (!['INVOICE', 'MANUAL'].includes(sourceType) || !returnDate || !location?.trim() || !Array.isArray(items) || !items.length) return res.status(400).json({ message: 'Return type, date, location, and at least one item are required.' });
+  if (sourceType === 'INVOICE' && !mongoose.isValidObjectId(invoiceOrderId)) return res.status(400).json({ message: 'Select an invoice to create an invoice return.' });
+  if (user.role === 'LOCATION_MANAGER' && location !== user.location) return res.status(403).json({ message: 'Location Managers can create returns only for their own location.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let salesReturn; const changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      let invoice = null;
+      if (sourceType === 'INVOICE') {
+        invoice = await Order.findOne({ _id: invoiceOrderId, status: 'COMPLETED', location }).session(dbSession);
+        if (!invoice) throw new Error('The selected invoice is not available for this location.');
+      }
+      const productIds = [...new Set(items.map((item) => String(item.productId)))];
+      if (productIds.some((id) => !mongoose.isValidObjectId(id))) throw new Error('One or more products are invalid.');
+      const products = await Product.find({ _id: { $in: productIds }, plant: location }).session(dbSession);
+      if (products.length !== productIds.length) throw new Error('Every returned product must belong to the selected location.');
+      const productById = new Map(products.map((product) => [String(product._id), product]));
+      const invoiceItems = new Map((invoice?.items || []).map((item) => [String(item.productId), item]));
+      const priorReturns = invoice ? await SalesReturn.find({ invoiceOrderId: invoice._id, status: 'POSTED' }).session(dbSession) : [];
+      const returnedByProduct = new Map();
+      priorReturns.flatMap((record) => record.items).forEach((item) => returnedByProduct.set(String(item.productId), (returnedByProduct.get(String(item.productId)) || 0) + Number(item.quantity)));
+      const returnItems = [];
+      for (const item of items) {
+        const quantity = Number(item.quantity);
+        if (!Number.isInteger(quantity) || quantity < 1) throw new Error('Return quantities must be whole numbers of at least 1.');
+        const product = productById.get(String(item.productId));
+        const invoiceItem = invoiceItems.get(String(item.productId));
+        if (invoice && !invoiceItem) throw new Error(`${product.productCode} was not sold on the selected invoice.`);
+        if (invoice && quantity + (returnedByProduct.get(String(product._id)) || 0) > Number(invoiceItem.quantity)) throw new Error(`${product.productCode} exceeds the remaining returnable invoice quantity.`);
+        const unitPrice = invoiceItem ? Number(invoiceItem.unitPrice) : Number(product.sellingPrice || 0);
+        returnItems.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantity, unitPrice, amount: quantity * unitPrice, reason: String(item.reason || '').trim() });
+        const updated = await Product.findByIdAndUpdate(product._id, { $inc: { openingStock: quantity } }, { new: true, session: dbSession });
+        changedProducts.push(updated);
+      }
+      const counter = await Counter.findOneAndUpdate({ key: 'SALES_RETURN' }, { $inc: { value: 1 }, $setOnInsert: { prefix: 'SRN-', padding: 6 } }, { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession });
+      const totalQuantity = returnItems.reduce((sum, item) => sum + item.quantity, 0), totalAmount = returnItems.reduce((sum, item) => sum + item.amount, 0);
+      [salesReturn] = await SalesReturn.create([{ returnNumber: formatSalesReturnNumber(counter.value, counter), returnDate: new Date(returnDate), sourceType, invoiceOrderId: invoice?._id || null, invoiceNumber: invoice?.orderNumber || '', customerName: invoice?.customerName || String(req.body.customerName || '').trim(), location, remarks: String(remarks).trim(), createdById: user._id, createdByName: user.name, items: returnItems, totalQuantity, totalAmount }], { session: dbSession });
+      await StockUpdate.insertMany(returnItems.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: item.quantity, resultingStock: changedProducts[index].openingStock, location, managerId: user._id, managerName: user.name, documentNo: salesReturn.returnNumber, transactionType: 'SALES RETURN', description: salesReturn.invoiceNumber ? `Return against ${salesReturn.invoiceNumber}` : 'Manual sales return' })), { session: dbSession });
+    });
+    publishStockUpdate(changedProducts); publishOrderUpdate(); res.status(201).json(salesReturn);
+  } catch (error) { res.status(400).json({ message: error.message || 'Unable to save sales return.' }); } finally { await dbSession.endSession(); }
+});
+app.post('/api/sales-returns/:id/reverse', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can reverse sales returns.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid sales return.' });
+  const reversalReason = String(req.body.reason || '').trim();
+  if (!reversalReason) return res.status(400).json({ message: 'Enter a reason for reversing this sales return.' });
+  const dbSession = await mongoose.startSession();
+  try {
+    let salesReturn; const changedProducts = [];
+    await dbSession.withTransaction(async () => {
+      salesReturn = await SalesReturn.findById(req.params.id).session(dbSession);
+      if (!salesReturn) throw new Error('Sales return not found.');
+      if (salesReturn.status === 'REVERSED') throw new Error('This sales return has already been reversed.');
+      for (const item of salesReturn.items) {
+        const updated = await Product.findOneAndUpdate(
+          { _id: item.productId, plant: salesReturn.location, openingStock: { $gte: Number(item.quantity) } },
+          { $inc: { openingStock: -Number(item.quantity) } },
+          { new: true, session: dbSession }
+        );
+        if (!updated) throw new Error(`${item.productCode} does not have enough available stock to reverse this return.`);
+        changedProducts.push(updated);
+      }
+      salesReturn.status = 'REVERSED'; salesReturn.reversedAt = new Date(); salesReturn.reversedByName = user.name; salesReturn.reversalReason = reversalReason;
+      await salesReturn.save({ session: dbSession });
+      await StockUpdate.insertMany(salesReturn.items.map((item, index) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, quantityAdded: -Number(item.quantity), resultingStock: changedProducts[index].openingStock, location: salesReturn.location, managerId: user._id, managerName: user.name })), { session: dbSession });
+    });
+    publishStockUpdate(changedProducts); res.json(salesReturn);
+  } catch (error) { res.status(400).json({ message: error.message || 'Unable to reverse sales return.' }); } finally { await dbSession.endSession(); }
 });
 
 app.post('/api/products', async (req, res) => {
