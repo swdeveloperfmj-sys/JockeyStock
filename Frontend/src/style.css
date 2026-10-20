@@ -2440,6 +2440,11 @@ td small {
 .sales-register-table td { min-width: 86px; vertical-align: middle; }
 .sales-register-table td:nth-child(2),
 .sales-register-table td:nth-child(13) { min-width: 210px; }
+.stock-balance-table th:nth-child(13),
+.stock-balance-table td:nth-child(13) {
+  width: 56px;
+  min-width: 56px;
+}
 .sales-register-table .number-cell { text-align: right; font-variant-numeric: tabular-nums; }
 .report-column-header { position: relative; padding-right: 30px !important; }
 .report-column-header > span { display: inline-block; }
