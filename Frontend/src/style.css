@@ -1006,6 +1006,7 @@ nav a.sidebar-report-link {
     break-inside: avoid;
   }
 }
+
 .side-actions {
   margin-top: auto;
 }
@@ -2473,14 +2474,16 @@ td small {
 .sales-register-actions .pivot-view-button { border-color: #286aa0; background: #2f75b5 !important; color: #fff !important; box-shadow: 0 7px 18px rgba(47,117,181,.22) !important; }
 .stock-adjustment-page { display: grid; gap: 18px; }
 form.stock-adjustment-card { width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 12px 28px rgba(0,0,0,.08); }
-.stock-adjustment-form { display: grid; grid-template-columns: minmax(260px, 2.1fr) minmax(150px, 1fr) minmax(110px, .7fr) minmax(180px, 1.25fr) minmax(200px, 1.5fr) auto; align-items: end; gap: 12px; padding: 18px; }
+.stock-adjustment-form { display: grid; grid-template-columns: 18ch minmax(240px, 1.6fr) 145px 140px minmax(185px, 1fr) minmax(180px, 1fr); align-items: end; gap: 12px; padding: 18px; }
 .stock-adjustment-form label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 800; }
 .stock-adjustment-form input,
 .stock-adjustment-form select,
 .stock-adjustment-form textarea { color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; background: var(--field) !important; }
 .stock-adjustment-form input::placeholder,
 .stock-adjustment-form textarea::placeholder { color: var(--muted) !important; -webkit-text-fill-color: var(--muted) !important; opacity: 1; }
-.stock-adjustment-form select option { background: var(--field); color: var(--ink); }
+.stock-adjustment-form select option { background: #fff; color: #111 !important; }
+.stock-adjustment-form > label:first-child,
+.stock-adjustment-form > label:first-child input { width: 18ch; }
 .stock-adjustment-form textarea { min-height: 42px; resize: vertical; }
 .stock-adjustment-form small { color: var(--muted); font-size: .73rem; }
 .stock-adjustment-card footer { display: flex; justify-content: flex-end; padding: 13px 18px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 92%, #2f75b5); }
@@ -2495,6 +2498,160 @@ form.stock-adjustment-card { width: 100%; overflow: hidden; border: 1px solid va
 .stock-adjustment-list td:last-child button { width: auto; min-height: 28px; margin: 0; padding: 5px 7px; background: transparent !important; color: #c54040 !important; box-shadow: none; }
 .stock-adjustment-add { color: #167556; }
 .stock-adjustment-reduce { color: #b33131; }
+.adjustment-document-table tbody tr { cursor: pointer; }
+.adjustment-print-backdrop { position: fixed !important; inset: 0 !important; z-index: 5000 !important; display: flex !important; align-items: flex-start !important; justify-content: center !important; width: 100vw !important; height: 100dvh !important; overflow: auto !important; padding: 24px 90px !important; background: #20242b !important; }
+.adjustment-print-preview { position: relative; box-sizing: border-box; flex: 0 0 210mm; width: 210mm; height: 297mm; min-height: 297mm; padding: 7mm 5mm; overflow: hidden; background: #fff; color: #000; font-family: Arial, sans-serif; font-size: 6pt; line-height: 1.15; box-shadow: 0 2px 16px rgba(0,0,0,.4); }
+.adjustment-print-preview header { display: flex; align-items: flex-start; justify-content: space-between; height: 23mm; margin: 0; padding: 0; border: 0; }
+.adjustment-print-preview header > div:first-child > b { font-size: 7pt; font-weight: 700; }
+.adjustment-print-preview header > div:first-child small { margin: 2px 0 0; color: transparent; font-size: 5pt; text-align: left; }
+.adjustment-print-preview header > div:first-child small::after { content: "-;'-"; color: #000; }
+.adjustment-print-preview header h2 { margin: 3mm 0 0; color: #0000ff; font-family: Arial, sans-serif; font-size: 14pt; font-weight: 700; line-height: 1; }
+.adjustment-print-preview header > div:last-child { display: grid; justify-items: end; gap: 1.2mm; padding-top: 6mm; font-size: 6pt; font-style: italic; }
+.adjustment-print-preview header > div:last-child b { color: #777; font-size: 6pt; font-weight: 400; }
+.adjustment-print-preview header small { display: block; margin: 0; font-size: 6pt; line-height: 1; text-align: right; }
+.adjustment-document-details { display: grid; grid-template-columns: 1fr 1fr; column-gap: 42mm; height: 27mm; margin: 0 2mm; padding-top: 5mm; font-size: 6pt; }
+.adjustment-document-details > div { display: grid; align-content: start; gap: 2mm; }
+.adjustment-document-details span { display: grid; grid-template-columns: 27mm 1fr; align-items: baseline; min-width: 0; }
+.adjustment-document-details b { font-size: 6pt; font-weight: 700; }
+.adjustment-print-preview table { width: 100%; margin: 0; border-collapse: collapse; table-layout: auto; color: #000; font-size: 6pt; line-height: 1.1; }
+.adjustment-print-preview th, .adjustment-print-preview td { overflow: visible; padding: 1.15mm 1.5mm; border: 0; font-family: Arial, sans-serif; font-size: 6pt; font-weight: 400; line-height: 1.1; text-align: left; white-space: nowrap; overflow-wrap: normal; }
+.adjustment-print-preview thead { border-top: .2mm solid #555; border-bottom: .2mm solid #555; }
+.adjustment-print-preview thead th { color: #000; font-size: 6pt; font-weight: 700; text-transform: none; }
+.adjustment-print-preview tbody { border-bottom: .2mm solid #555; }
+.adjustment-print-preview tbody td:nth-child(n+3), .adjustment-print-preview thead th:nth-child(n+3), .adjustment-print-preview tfoot td { text-align: right; }
+.adjustment-print-preview tbody td:nth-child(2), .adjustment-print-preview thead th:nth-child(2) { width: 39mm; text-align: left; }
+.adjustment-print-preview tfoot td { padding-top: 1.5mm; border: 0; font-weight: 400; line-height: 1.8; }
+.adjustment-print-preview tfoot td:first-child { padding-right: 10mm; font-weight: 700; }
+.adjustment-print-preview footer { position: relative; display: block; width: 100%; height: 35mm; margin-top: 18mm; padding: 0; font-size: 6pt; }
+.adjustment-print-preview footer span { position: absolute; top: 0; width: 27mm; padding-top: 1.5mm; border-top: .2mm dashed #000; font-size: 6pt; line-height: 2.1; text-align: center; white-space: nowrap; }
+.adjustment-print-preview footer span:nth-child(1), .adjustment-print-preview footer span:nth-child(2) { background-image: linear-gradient(to right, #000 50%, transparent 50%); background-position: 0 10mm; background-size: 2mm .2mm; background-repeat: repeat-x; }
+.adjustment-print-preview footer span:nth-child(1) { left: 4mm; }
+.adjustment-print-preview footer span:nth-child(2) { left: 142mm; width: 36mm; }
+.adjustment-print-preview footer span:nth-child(3) { top: 20mm; left: 142mm; width: 36mm; line-height: 1.2; }
+.adjustment-print-preview aside { position: absolute !important; inset: auto auto 5mm 5mm !important; z-index: auto !important; display: block !important; width: auto !important; height: auto !important; min-height: 0 !important; padding: 0 !important; transform: none !important; background: transparent !important; color: #000 !important; box-shadow: none !important; font-size: 4.5pt; font-style: italic; }
+.adjustment-print-preview::after { position: absolute; right: 5mm; bottom: 5mm; content: "Page 1 of 1"; color: #000; font-size: 4.5pt; }
+.adjustment-print-preview > button { position: fixed; z-index: 5002; right: 22px; top: 22px; left: auto; width: auto; margin: 0; transform: none; }
+@media (max-width: 900px) {
+  .adjustment-print-backdrop { padding: 72px 12px 24px !important; }
+  .adjustment-print-preview { width: 210mm; flex: 0 0 210mm; transform-origin: top center; }
+}
+@page { size: Letter portrait; margin: 0; }
+@media print {
+  body * { visibility: hidden !important; }
+  .adjustment-print-backdrop, .adjustment-print-backdrop * { visibility: visible !important; }
+  .adjustment-print-backdrop { position: static !important; display: block !important; padding: 0 !important; background: #fff !important; }
+  .adjustment-print-preview { width: 210mm !important; height: 297mm !important; min-height: 297mm !important; margin: 0 !important; border: 0 !important; box-shadow: none !important; }
+  .adjustment-print-preview > button { display: none !important; }
+}
+/* Exact Stock Adjustment reference-PDF geometry (Letter: 612 x 792 pt). */
+.adjustment-print-preview {
+  box-sizing: border-box !important;
+  flex: 0 0 8.5in !important;
+  width: 8.5in !important;
+  height: 11in !important;
+  min-height: 11in !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  color: #000 !important;
+  font-family: Calibri, Arial, sans-serif !important;
+  font-size: 7.35pt !important;
+  line-height: 1 !important;
+}
+.adjustment-print-preview header {
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
+.adjustment-print-preview header > div:first-child { position: absolute; top: 19pt; left: 14.4pt; }
+.adjustment-print-preview header > div:first-child > b { font-size: 0 !important; }
+.adjustment-print-preview header > div:first-child > b::after { content: "ROYAL LANKA AGANCIES"; font-size: 9pt; font-weight: 700; }
+.adjustment-print-preview header > div:first-child small { margin-top: 4pt !important; color: transparent !important; font-size: 0 !important; }
+.adjustment-print-preview header > div:first-child small::after { content: "-,-,-" !important; color: #000 !important; font-size: 8.2pt !important; }
+.adjustment-print-preview header h2 { margin: 14pt 0 0 !important; color: #0000ff !important; font-family: Calibri, Arial, sans-serif !important; font-size: 14.75pt !important; font-weight: 700 !important; line-height: 1 !important; }
+.adjustment-print-preview header > div:last-child { position: absolute; top: 38.4pt; right: 16.4pt; display: grid !important; justify-items: end; gap: 3.05pt !important; padding: 0 !important; font-family: Calibri, Arial, sans-serif !important; font-size: 8.2pt !important; font-style: italic; line-height: 1 !important; }
+.adjustment-print-preview header > div:last-child b { color: #808080 !important; font-size: 8.2pt !important; font-weight: 400 !important; }
+.adjustment-print-preview header > div:last-child small { margin: 0 !important; font-size: 8.2pt !important; line-height: 1 !important; }
+.adjustment-document-details {
+  position: absolute !important;
+  top: 98.5pt !important;
+  left: 20.4pt !important;
+  display: grid !important;
+  grid-template-columns: 312pt 180pt !important;
+  column-gap: 78pt !important;
+  width: 570pt !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 7.35pt !important;
+  line-height: 1 !important;
+}
+.adjustment-document-details > div { display: grid !important; align-content: start !important; gap: 4.65pt !important; }
+.adjustment-document-details span { display: grid !important; grid-template-columns: 78pt 1fr !important; min-width: 0; }
+.adjustment-document-details b { font-size: 7.35pt !important; font-weight: 700 !important; }
+.adjustment-print-preview table {
+  position: absolute !important;
+  top: 160.25pt !important;
+  left: 14.4pt !important;
+  width: 588pt !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  border-collapse: collapse !important;
+  table-layout: fixed !important;
+  color: #000 !important;
+  font-family: Calibri, Arial, sans-serif !important;
+  font-size: 7.35pt !important;
+  line-height: 1 !important;
+}
+.adjustment-print-preview th,
+.adjustment-print-preview td {
+  display: table-cell !important;
+  width: auto;
+  min-width: 0 !important;
+  padding: 0 6pt !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #000 !important;
+  font-family: Calibri, Arial, sans-serif !important;
+  font-size: 7.35pt !important;
+  font-weight: 400 !important;
+  line-height: 1 !important;
+  text-align: left;
+  white-space: nowrap !important;
+}
+.adjustment-print-preview thead { display: table-header-group !important; height: 21.5pt !important; border-top: .5pt solid #000 !important; border-bottom: .5pt solid #000 !important; }
+.adjustment-print-preview thead tr { display: table-row !important; height: 21.5pt !important; padding: 0 !important; border: 0 !important; }
+.adjustment-print-preview thead th { height: 21.5pt !important; color: #000 !important; font-size: 7.35pt !important; font-weight: 700 !important; vertical-align: middle !important; text-transform: none !important; }
+.adjustment-print-preview tbody { display: table-row-group !important; border-bottom: .5pt solid #000 !important; }
+.adjustment-print-preview tbody tr { display: table-row !important; height: 16.35pt !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.adjustment-print-preview tbody td { height: 16.35pt !important; vertical-align: middle !important; }
+.adjustment-print-preview th:nth-child(1) { width: 76.5pt !important; }
+.adjustment-print-preview th:nth-child(2) { width: 152.25pt !important; }
+.adjustment-print-preview th:nth-child(3) { width: 39pt !important; }
+.adjustment-print-preview th:nth-child(4) { width: 42.45pt !important; }
+.adjustment-print-preview th:nth-child(5) { width: 44.3pt !important; }
+.adjustment-print-preview th:nth-child(6) { width: 39.35pt !important; }
+.adjustment-print-preview th:nth-child(7) { width: 48.75pt !important; }
+.adjustment-print-preview th:nth-child(8) { width: 50.5pt !important; }
+.adjustment-print-preview th:nth-child(9) { width: 55.1pt !important; }
+.adjustment-print-preview tbody td:nth-child(n+3),
+.adjustment-print-preview thead th:nth-child(n+3),
+.adjustment-print-preview tfoot td { text-align: right !important; }
+.adjustment-print-preview tfoot { display: table-footer-group !important; }
+.adjustment-print-preview tfoot tr { display: table-row !important; height: 27pt !important; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.adjustment-print-preview tfoot td { padding: 5pt 6pt 0 !important; font-size: 7.35pt !important; font-weight: 400 !important; line-height: 12pt !important; vertical-align: top !important; }
+.adjustment-print-preview tfoot td:first-child { padding-right: 11pt !important; font-weight: 700 !important; }
+.adjustment-print-preview footer { position: absolute !important; inset: 302.25pt auto auto 26.4pt !important; display: block !important; width: 510pt !important; height: 80pt !important; margin: 0 !important; padding: 0 !important; font-size: 7.35pt !important; }
+.adjustment-print-preview footer span { position: absolute !important; top: 0 !important; width: 72pt !important; padding-top: 7pt !important; border-top: 1pt dashed #000 !important; background-image: linear-gradient(to right, #000 25%, transparent 25%) !important; background-position: 0 29pt !important; background-size: 4pt 1pt !important; background-repeat: repeat-x !important; font-size: 7.35pt !important; line-height: 15pt !important; text-align: center !important; white-space: nowrap !important; }
+.adjustment-print-preview footer span:nth-child(1) { left: 0 !important; }
+.adjustment-print-preview footer span:nth-child(2) { left: 402pt !important; width: 108pt !important; }
+.adjustment-print-preview footer span:nth-child(3) { top: 60pt !important; left: 402pt !important; width: 108pt !important; padding-top: 7pt !important; border-top: 1pt dashed #000 !important; background: none !important; line-height: 1 !important; }
+.adjustment-print-preview aside { position: absolute !important; inset: 760.85pt auto auto 14.4pt !important; font-family: Calibri, Arial, sans-serif !important; font-size: 0 !important; font-style: italic !important; }
+.adjustment-print-preview aside::after { content: "Retail IT Technologies Pvt Ltd. - 0112352326  # NO: 491, Galle Rd, Colombo - 03"; color: #000; font-size: 6.55pt; }
+.adjustment-print-preview::after { position: absolute !important; right: 18pt !important; bottom: 13.5pt !important; content: "Page 1 of 1" !important; color: #000 !important; font-family: Calibri, Arial, sans-serif !important; font-size: 8.2pt !important; }
 @media (max-width: 1200px) { .stock-adjustment-form { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
   .stock-adjustment-page { gap: 12px; }
@@ -7852,5 +8009,24 @@ label {
     display: block !important;
     padding: 0 !important;
     overflow: visible !important;
+  }
+}
+
+/* Final print-position override: remove the modal and dashboard flow so the
+   reference sheet starts at the physical page origin. */
+@media print {
+  body:has(.adjustment-print-backdrop) {
+    margin: 0 !important;
+  }
+
+  body:has(.adjustment-print-backdrop) .adjustment-print-backdrop {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    display: block !important;
+    width: 8.5in !important;
+    height: 11in !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
   }
 }

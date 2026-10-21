@@ -53,6 +53,7 @@ import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
 import CustomerSeriesSettings from "./CustomerSeriesSettings.jsx";
+import StockAdjustmentSeriesSettings from "./StockAdjustmentSeriesSettings.jsx";
 import CustomersPage from "./CustomersPage.jsx";
 import { createShipmentInvoicePdf } from "./invoicePdf.js";
 import logoUrl from "../assets/LOGO.png";
@@ -3090,6 +3091,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
           <PrnSeriesSettings />
           <SalesOrderSeriesSettings />
           <CustomerSeriesSettings />
+          <StockAdjustmentSeriesSettings />
         </>}
         {!admin && view === "Dashboard" && (
           <section className="sales-product-catalog">

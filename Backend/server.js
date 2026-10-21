@@ -1176,6 +1176,8 @@ app.post('/api/stock-adjustments', async (req, res) => {
   let changedProducts = [], updates = [];
   try {
     await session.withTransaction(async () => {
+      const counter = await Counter.findOneAndUpdate({ key: 'STOCK_ADJUSTMENT' }, { $inc: { value: 1 }, $setOnInsert: { prefix: 'SA-', padding: 8 } }, { new: true, upsert: true, session });
+      const documentNo = formatStockAdjustmentNumber(counter.value, counter);
       for (const item of items) {
         const amount = Number(item.quantity);
         if (!item.productId || !['ADD', 'REDUCE'].includes(item.adjustmentType) || !Number.isInteger(amount) || amount < 1 || !String(item.reason || '').trim()) throw new Error('Every item needs a product, type, whole quantity, and reason.');
@@ -1183,7 +1185,7 @@ app.post('/api/stock-adjustments', async (req, res) => {
         const product = await Product.findOneAndUpdate(filter, { $inc: { openingStock: item.adjustmentType === 'ADD' ? amount : -amount } }, { new: true, runValidators: true, session });
         if (!product) throw new Error(item.adjustmentType === 'REDUCE' ? 'Cannot reduce more than the available stock.' : 'Product not found.');
         changedProducts.push(product);
-        updates.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: item.adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, transactionType: 'STOCK ADJUSTMENT', adjustmentType: item.adjustmentType, reason: String(item.reason).trim(), remark: String(item.remark || '').trim(), description: String(item.remark || '').trim() });
+        updates.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: item.adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, documentNo, transactionType: 'STOCK ADJUSTMENT', adjustmentType: item.adjustmentType, reason: String(item.reason).trim(), remark: String(item.remark || '').trim(), description: `${item.adjustmentType === 'ADD' ? 'Stock Adjustment - Add' : 'Stock Adjustment - Reduce'}: ${String(item.reason).trim()}${item.remark ? ` - ${String(item.remark).trim()}` : ''}` });
       }
       await StockUpdate.insertMany(updates, { session });
     });
@@ -1274,6 +1276,7 @@ const formatGrnNumber = (value, counter = {}) => {
   return `${prefix}${String(value).padStart(padding, '0')}`;
 };
 const formatPrnNumber = (value, counter = {}) => `${counter.prefix ?? 'PRN-'}${String(value).padStart(Number(counter.padding || 6), '0')}`;
+const formatStockAdjustmentNumber = (value, counter = {}) => `${counter.prefix ?? 'SA-'}${String(value).padStart(Number(counter.padding || 8), '0')}`;
 const formatSalesOrderNumber = (value, counter = {}) => {
   const prefix = counter.prefix ?? 'SO-';
   const padding = Number(counter.padding || 6);
@@ -1284,6 +1287,54 @@ const formatCustomerNumber = (value, counter = {}) => {
   const padding = Number(counter.padding || 6);
   return `${prefix}${String(value).padStart(padding, '0')}`;
 };
+app.get('/api/stock-adjustments/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the stock-adjustment number series.' });
+  const counter = await Counter.findOne({ key: 'STOCK_ADJUSTMENT' }).lean();
+  const settings = counter || { value: 0, prefix: 'SA-', padding: 8 };
+  res.json({
+    prefix: settings.prefix ?? 'SA-',
+    padding: Number(settings.padding || 8),
+    currentNumber: Number(settings.value || 0) > 0 ? formatStockAdjustmentNumber(settings.value, settings) : null,
+    nextNumber: formatStockAdjustmentNumber(Number(settings.value || 0) + 1, settings)
+  });
+});
+app.put('/api/stock-adjustments/number-series', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the stock-adjustment number series.' });
+
+  const nextNumber = String(req.body.nextNumber || '').trim().toUpperCase();
+  const match = nextNumber.match(/^(.*?)(\d+)$/);
+  if (!match || nextNumber.length > 50) return res.status(400).json({ message: 'Enter a pattern ending with numbers, for example SA-00000001.' });
+  const [, prefix, digits] = match;
+  const startingValue = Number(digits);
+  if (!Number.isSafeInteger(startingValue) || startingValue < 1 || digits.length > 12) return res.status(400).json({ message: 'The stock-adjustment starting number must be between 1 and 12 digits.' });
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existingNumbers = await StockUpdate.distinct('documentNo', {
+    transactionType: 'STOCK ADJUSTMENT',
+    documentNo: new RegExp(`^${escapedPrefix}\\d+$`, 'i')
+  });
+  const highestExisting = existingNumbers.reduce((highest, documentNo) => {
+    const suffix = String(documentNo).slice(prefix.length);
+    return /^\d+$/.test(suffix) ? Math.max(highest, Number(suffix)) : highest;
+  }, 0);
+  if (startingValue <= highestExisting) return res.status(409).json({ message: `The next number must be greater than the existing ${formatStockAdjustmentNumber(highestExisting, { prefix, padding: digits.length })}.` });
+
+  const counter = await Counter.findOneAndUpdate(
+    { key: 'STOCK_ADJUSTMENT' },
+    { $set: { value: startingValue - 1, prefix, padding: digits.length } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  );
+  res.json({
+    prefix: counter.prefix,
+    padding: counter.padding,
+    currentNumber: counter.value > 0 ? formatStockAdjustmentNumber(counter.value, counter) : null,
+    nextNumber: formatStockAdjustmentNumber(counter.value + 1, counter)
+  });
+});
 app.get('/api/customers/number-series', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
