@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  FiChevronDown,
   FiDownload,
   FiFilter,
   FiGrid,
@@ -561,11 +562,74 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
 }
 
 function ReportTable({ rows }) {
+  const [openFilter, setOpenFilter] = useState("");
+  const [columnFilters, setColumnFilters] = useState({});
+  const tableRef = useRef(null);
+
+  useEffect(() => {
+    if (!openFilter) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!tableRef.current?.contains(event.target)) setOpenFilter("");
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [openFilter]);
+  const columnValues = useMemo(() => Object.fromEntries(FIELDS.map((field) => [
+    field.key,
+    [...new Set(rows.map((row) => String(row[field.key] ?? "")))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+  ])), [rows]);
+  const displayedRows = useMemo(() => rows.filter((row) => Object.entries(columnFilters).every(([key, selected]) => {
+    return !Array.isArray(selected) || selected.includes(String(row[key] ?? ""));
+  })), [columnFilters, rows]);
+
+  const labelFor = (field, value) => {
+    if (!value) return "(Blank)";
+    if (field.type === "date") return dateTime(value);
+    if (field.type === "number") return field.key === "qty" ? value : money(value);
+    return value;
+  };
+
+  const toggleValue = (key, value) => {
+    setColumnFilters((current) => {
+      const allValues = columnValues[key];
+      const selected = Array.isArray(current[key]) ? current[key] : allValues;
+      const next = selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value];
+      return { ...current, [key]: next.length === allValues.length ? null : next };
+    });
+  };
+
   return (
-    <table className="grn-report-table sales-register-table">
-      <thead><tr>{FIELDS.map((field) => <th key={field.key}>{field.label}</th>)}</tr></thead>
+    <table ref={tableRef} className="grn-report-table sales-register-table">
+      <thead><tr>{FIELDS.map((field) => {
+        const values = columnValues[field.key];
+        const selected = Array.isArray(columnFilters[field.key]) ? columnFilters[field.key] : values;
+        const hasFilter = Array.isArray(columnFilters[field.key]);
+        return <th className="report-column-header" key={field.key}>
+          <span>{field.label}</span>
+          <button
+            type="button"
+            className={`report-column-filter${openFilter === field.key ? " active" : ""}`}
+            onClick={() => setOpenFilter((current) => current === field.key ? "" : field.key)}
+            aria-label={`Filter ${field.label}`}
+            aria-expanded={openFilter === field.key}
+          ><FiChevronDown /></button>
+          {openFilter === field.key && <div className="report-column-filter-menu">
+            <div className="report-filter-menu-actions">
+              <button type="button" onClick={() => setColumnFilters((current) => ({ ...current, [field.key]: null }))}>Select all</button>
+              <button type="button" onClick={() => setColumnFilters((current) => ({ ...current, [field.key]: [] }))}>Clear all</button>
+            </div>
+            <div className="report-filter-options">
+              {values.map((value) => <label key={value || "__blank"}>
+                <input type="checkbox" checked={selected.includes(value)} onChange={() => toggleValue(field.key, value)} />
+                <span>{labelFor(field, value)}</span>
+              </label>)}
+            </div>
+            <button type="button" className="report-filter-done" onClick={() => setOpenFilter("")}>{hasFilter ? "Apply" : "Done"}</button>
+          </div>}
+        </th>;
+      })}</tr></thead>
       <tbody>
-        {rows.map((row) => (
+        {displayedRows.map((row) => (
           <tr key={row.id}>
             {FIELDS.map((field) => {
               const value = row[field.key];
@@ -575,7 +639,7 @@ function ReportTable({ rows }) {
             })}
           </tr>
         ))}
-        {!rows.length && <tr><td className="pivot-empty" colSpan={FIELDS.length}>No sales register records match these filters.</td></tr>}
+        {!displayedRows.length && <tr><td className="pivot-empty" colSpan={FIELDS.length}>No sales register records match these filters.</td></tr>}
       </tbody>
     </table>
   );
