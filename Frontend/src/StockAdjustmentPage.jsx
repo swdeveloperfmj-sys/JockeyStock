@@ -9,33 +9,22 @@ import {
 import { createStockAdjustmentPdf } from "./stockAdjustmentPdf.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-const REASONS = [
-  "Stock count correction",
-  "Damaged stock",
-  "Missing stock",
-  "Found stock",
-  "Data entry correction",
-  "Other",
-];
-
 export default function StockAdjustmentPage() {
   const [products, setProducts] = useState([]),
     [records, setRecords] = useState([]),
     [error, setError] = useState("");
   const [form, setForm] = useState({
     productId: "",
-    adjustmentType: "ADD",
     quantity: "",
-    reason: "",
-    remark: "",
   });
+  const [adjustmentType, setAdjustmentType] = useState("ADD");
+  const [remark, setRemark] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [items, setItems] = useState([]);
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [filter, setFilter] = useState({
     search: "",
     type: "",
-    reason: "",
     from: "",
     to: "",
   });
@@ -94,8 +83,7 @@ export default function StockAdjustmentPage() {
           `${record.productCode} ${record.productName} ${record.reason} ${record.remark} ${record.managerName}`.toLowerCase();
         return (
           (!filter.search || text.includes(filter.search.toLowerCase())) &&
-          (!filter.type || record.adjustmentType === filter.type) &&
-          (!filter.reason || record.reason === filter.reason)
+          (!filter.type || record.adjustmentType === filter.type)
         );
       }),
     [records, filter],
@@ -127,10 +115,14 @@ export default function StockAdjustmentPage() {
       setError("Add at least one product adjustment.");
       return;
     }
-    if (form.productId && (!form.quantity || !form.reason)) {
+    if (form.productId && !form.quantity) {
       setError(
         "Complete the current item or add it to the adjustment list first.",
       );
+      return;
+    }
+    if (!remark.trim()) {
+      setError("Enter a common remark for this adjustment.");
       return;
     }
     try {
@@ -139,8 +131,10 @@ export default function StockAdjustmentPage() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          adjustmentType,
+          remark: remark.trim(),
           items: batch.map((item) => ({
-            ...item,
+            productId: item.productId,
             quantity: Number(item.quantity),
           })),
         }),
@@ -150,11 +144,10 @@ export default function StockAdjustmentPage() {
         throw new Error(data.message || "Could not save stock adjustment.");
       setForm({
         productId: "",
-        adjustmentType: "ADD",
         quantity: "",
-        reason: "",
-        remark: "",
       });
+      setRemark("");
+      setAdjustmentType("ADD");
       setProductSearch("");
       setItems([]);
       await load();
@@ -163,15 +156,13 @@ export default function StockAdjustmentPage() {
     }
   };
   const addCurrentItem = () => {
-    if (!form.productId || !form.quantity || !form.reason) {
-      setError("Select a product, quantity and reason before adding.");
+    if (!form.productId || !form.quantity) {
+      setError("Select a product and quantity before adding.");
       return;
     }
     setItems((current) => {
       const existingIndex = current.findIndex(
-        (item) =>
-          item.productId === form.productId &&
-          item.adjustmentType === form.adjustmentType,
+        (item) => item.productId === form.productId,
       );
       if (existingIndex < 0) return [...current, { ...form }];
       return current.map((item, index) =>
@@ -179,18 +170,13 @@ export default function StockAdjustmentPage() {
           ? {
               ...item,
               quantity: Number(item.quantity) + Number(form.quantity),
-              reason: form.reason || item.reason,
-              remark: form.remark || item.remark,
             }
           : item,
       );
     });
     setForm({
       productId: "",
-      adjustmentType: "ADD",
       quantity: "",
-      reason: "",
-      remark: "",
     });
     setProductSearch("");
     setError("");
@@ -204,7 +190,6 @@ export default function StockAdjustmentPage() {
         Type: record.adjustmentType,
         Quantity: Math.abs(record.quantityAdded),
         "Stock After": record.resultingStock,
-        Reason: record.reason,
         Remark: record.remark,
         Location: record.location,
         "Adjusted By": record.managerName,
@@ -275,6 +260,17 @@ export default function StockAdjustmentPage() {
       >
         <div className="stock-adjustment-form">
           <label>
+            Adjustment type *
+            <select
+              value={adjustmentType}
+              onChange={(e) => setAdjustmentType(e.target.value)}
+              disabled={items.length > 0}
+            >
+              <option value="ADD">Add stock</option>
+              <option value="REDUCE">Reduce stock</option>
+            </select>
+          </label>
+          <label>
             Item code *
             <input
               list="stock-adjustment-products"
@@ -327,18 +323,6 @@ export default function StockAdjustmentPage() {
             />
           </label>
           <label>
-            Adjustment *
-            <select
-              value={form.adjustmentType}
-              onChange={(e) =>
-                setForm({ ...form, adjustmentType: e.target.value })
-              }
-            >
-              <option value="ADD">Add stock</option>
-              <option value="REDUCE">Reduce stock</option>
-            </select>
-          </label>
-          <label>
             Quantity *
             <input
               type="number"
@@ -347,28 +331,6 @@ export default function StockAdjustmentPage() {
               value={form.quantity}
               onChange={(e) => setForm({ ...form, quantity: e.target.value })}
               required
-            />
-          </label>
-          <label>
-            Reason *
-            <select
-              value={form.reason}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              required
-            >
-              <option value="">Select reason</option>
-              {REASONS.map((reason) => (
-                <option key={reason}>{reason}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Remark
-            <textarea
-              value={form.remark}
-              onChange={(e) => setForm({ ...form, remark: e.target.value })}
-              placeholder="Optional note"
-              rows="1"
             />
           </label>
           {selectedProduct && (
@@ -381,20 +343,30 @@ export default function StockAdjustmentPage() {
         </div>
         <section className="stock-adjustment-list">
           <div>
-            <strong>Adjustment items</strong>
+            <strong>
+              Adjustment items -{" "}
+              {adjustmentType === "ADD" ? "Add Stock" : "Reduce Stock"}
+            </strong>
             <span>
               {items.length} item{items.length === 1 ? "" : "s"} ready
             </span>
           </div>
+          <label className="stock-adjustment-common-remark">
+            Common remark *
+            <textarea
+              value={remark}
+              onChange={(event) => setRemark(event.target.value)}
+              placeholder="Enter the reason or note for this adjustment batch..."
+              rows="2"
+              required
+            />
+          </label>
           {items.length ? (
             <table>
               <thead>
                 <tr>
                   <th>Product</th>
-                  <th>Type</th>
                   <th>Qty</th>
-                  <th>Reason</th>
-                  <th>Remark</th>
                   <th></th>
                 </tr>
               </thead>
@@ -408,10 +380,7 @@ export default function StockAdjustmentPage() {
                       <td>
                         {product?.productCode} — {product?.productName}
                       </td>
-                      <td>{item.adjustmentType}</td>
                       <td>{item.quantity}</td>
-                      <td>{item.reason}</td>
-                      <td>{item.remark || "—"}</td>
                       <td>
                         <button
                           type="button"
@@ -461,7 +430,7 @@ export default function StockAdjustmentPage() {
           <input
             value={filter.search}
             onChange={(e) => setFilter({ ...filter, search: e.target.value })}
-            placeholder="Product, reason, user..."
+            placeholder="Product, remark, user..."
           />
         </label>
         <label>
@@ -473,18 +442,6 @@ export default function StockAdjustmentPage() {
             <option value="">All</option>
             <option value="ADD">Add</option>
             <option value="REDUCE">Reduce</option>
-          </select>
-        </label>
-        <label>
-          Reason
-          <select
-            value={filter.reason}
-            onChange={(e) => setFilter({ ...filter, reason: e.target.value })}
-          >
-            <option value="">All</option>
-            {REASONS.map((reason) => (
-              <option key={reason}>{reason}</option>
-            ))}
           </select>
         </label>
         <label>

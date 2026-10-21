@@ -1171,7 +1171,11 @@ app.post('/api/stock-adjustments', async (req, res) => {
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Stock Adjustment')) return res.status(403).json({ message: 'You are not allowed to make stock adjustments.' });
   const items = Array.isArray(req.body.items) ? req.body.items : [req.body];
+  const adjustmentType = String(req.body.adjustmentType || '').toUpperCase();
+  const remark = String(req.body.remark || '').trim();
   if (!items.length || items.length > 100) return res.status(400).json({ message: 'Add between 1 and 100 adjustment items.' });
+  if (!['ADD', 'REDUCE'].includes(adjustmentType)) return res.status(400).json({ message: 'Select Add Stock or Reduce Stock for this adjustment.' });
+  if (!remark) return res.status(400).json({ message: 'Enter a common remark for this adjustment.' });
   const session = await mongoose.startSession();
   let changedProducts = [], updates = [];
   try {
@@ -1180,12 +1184,12 @@ app.post('/api/stock-adjustments', async (req, res) => {
       const documentNo = formatStockAdjustmentNumber(counter.value, counter);
       for (const item of items) {
         const amount = Number(item.quantity);
-        if (!item.productId || !['ADD', 'REDUCE'].includes(item.adjustmentType) || !Number.isInteger(amount) || amount < 1 || !String(item.reason || '').trim()) throw new Error('Every item needs a product, type, whole quantity, and reason.');
-        const filter = item.adjustmentType === 'REDUCE' ? { _id: item.productId, openingStock: { $gte: amount } } : { _id: item.productId };
-        const product = await Product.findOneAndUpdate(filter, { $inc: { openingStock: item.adjustmentType === 'ADD' ? amount : -amount } }, { new: true, runValidators: true, session });
-        if (!product) throw new Error(item.adjustmentType === 'REDUCE' ? 'Cannot reduce more than the available stock.' : 'Product not found.');
+        if (!item.productId || !Number.isInteger(amount) || amount < 1) throw new Error('Every item needs a product and whole quantity.');
+        const filter = adjustmentType === 'REDUCE' ? { _id: item.productId, openingStock: { $gte: amount } } : { _id: item.productId };
+        const product = await Product.findOneAndUpdate(filter, { $inc: { openingStock: adjustmentType === 'ADD' ? amount : -amount } }, { new: true, runValidators: true, session });
+        if (!product) throw new Error(adjustmentType === 'REDUCE' ? 'Cannot reduce more than the available stock.' : 'Product not found.');
         changedProducts.push(product);
-        updates.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: item.adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, documentNo, transactionType: 'STOCK ADJUSTMENT', adjustmentType: item.adjustmentType, reason: String(item.reason).trim(), remark: String(item.remark || '').trim(), description: `${item.adjustmentType === 'ADD' ? 'Stock Adjustment - Add' : 'Stock Adjustment - Reduce'}: ${String(item.reason).trim()}${item.remark ? ` - ${String(item.remark).trim()}` : ''}` });
+        updates.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, documentNo, transactionType: 'STOCK ADJUSTMENT', adjustmentType, reason: '', remark, description: `${adjustmentType === 'ADD' ? 'Stock Adjustment - Add' : 'Stock Adjustment - Reduce'} - ${remark}` });
       }
       await StockUpdate.insertMany(updates, { session });
     });

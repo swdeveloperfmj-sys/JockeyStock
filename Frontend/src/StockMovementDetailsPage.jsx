@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FiPrinter, FiSearch, FiX } from "react-icons/fi";
+import { createBinCardPdf } from "./binCardPdf.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const dateValue = (date) => new Date(date).toLocaleDateString("en-GB");
@@ -65,6 +66,14 @@ export default function StockMovementDetailsPage({ user }) {
   const view = async (event) => {
     event.preventDefault();
     if (!selectedProduct) return setError("Scan or select a valid product.");
+    const pdfTab = window.open("", "_blank");
+    if (!pdfTab) {
+      setError("Please allow pop-ups to open the Bin Card PDF.");
+      return;
+    }
+    pdfTab.document.title = "Preparing Bin Card Report";
+    pdfTab.document.body.innerHTML =
+      '<p style="font:16px Arial;padding:24px">Preparing Bin Card Report...</p>';
     setLoading(true);
     setError("");
     try {
@@ -79,8 +88,17 @@ export default function StockMovementDetailsPage({ user }) {
       });
       const data = await response.json();
       if (!response.ok) throw Error(data.message);
-      setReport(data);
+      const pdf = createBinCardPdf(data, {
+        userName: user.name,
+        location: filters.location,
+        from: filters.from,
+        to: filters.to,
+      });
+      const pdfUrl = URL.createObjectURL(pdf);
+      pdfTab.location.replace(pdfUrl);
+      window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 300000);
     } catch (e) {
+      pdfTab.close();
       setError(e.message);
     } finally {
       setLoading(false);

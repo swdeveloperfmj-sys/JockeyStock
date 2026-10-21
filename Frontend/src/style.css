@@ -2450,7 +2450,7 @@ td small {
 .sales-register-date-filters,
 .sales-register-selection { display: grid; gap: 12px; align-items: end; margin: 18px 0; }
 .sales-register-date-filters { grid-template-columns: minmax(150px, .6fr) minmax(150px, .6fr) auto; max-width: 620px; }
-.sales-register-selection.audit-filter { grid-template-columns: repeat(4, minmax(145px, 1fr)) auto; padding: 16px; border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--surface) 95%, var(--cream)); }
+.sales-register-selection.audit-filter { grid-template-columns: repeat(4, minmax(145px, 1fr)); padding: 16px; border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--surface) 95%, var(--cream)); }
 .sales-register-date-filters label,
 .sales-register-selection label { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: .72rem; font-weight: 700; }
 .sales-register-date-filters input,
@@ -2474,7 +2474,7 @@ td small {
 .sales-register-actions .pivot-view-button { border-color: #286aa0; background: #2f75b5 !important; color: #fff !important; box-shadow: 0 7px 18px rgba(47,117,181,.22) !important; }
 .stock-adjustment-page { display: grid; gap: 18px; }
 form.stock-adjustment-card { width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 12px 28px rgba(0,0,0,.08); }
-.stock-adjustment-form { display: grid; grid-template-columns: 18ch minmax(240px, 1.6fr) 145px 140px minmax(185px, 1fr) minmax(180px, 1fr); align-items: end; gap: 12px; padding: 18px; }
+.stock-adjustment-form { display: grid; grid-template-columns: 150px 18ch minmax(240px, 1.6fr) 140px; align-items: end; gap: 12px; padding: 18px; }
 .stock-adjustment-form label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 800; }
 .stock-adjustment-form input,
 .stock-adjustment-form select,
@@ -2482,8 +2482,8 @@ form.stock-adjustment-card { width: 100%; overflow: hidden; border: 1px solid va
 .stock-adjustment-form input::placeholder,
 .stock-adjustment-form textarea::placeholder { color: var(--muted) !important; -webkit-text-fill-color: var(--muted) !important; opacity: 1; }
 .stock-adjustment-form select option { background: #fff; color: #111 !important; }
-.stock-adjustment-form > label:first-child,
-.stock-adjustment-form > label:first-child input { width: 18ch; }
+.stock-adjustment-form > label:nth-child(2),
+.stock-adjustment-form > label:nth-child(2) input { width: 18ch; }
 .stock-adjustment-form textarea { min-height: 42px; resize: vertical; }
 .stock-adjustment-form small { color: var(--muted); font-size: .73rem; }
 .stock-adjustment-card footer { display: flex; justify-content: flex-end; padding: 13px 18px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 92%, #2f75b5); }
@@ -2492,6 +2492,8 @@ form.stock-adjustment-card { width: 100%; overflow: hidden; border: 1px solid va
 .stock-adjustment-list > div { display: flex; justify-content: space-between; padding: 11px 13px; border-bottom: 1px solid var(--border); }
 .stock-adjustment-list > div span, .stock-adjustment-list p { color: var(--muted); font-size: .75rem; }
 .stock-adjustment-list p { padding: 10px 13px; }
+.stock-adjustment-common-remark { display: grid; gap: 6px; padding: 12px 13px; color: var(--muted); font-size: .72rem; font-weight: 800; border-bottom: 1px solid var(--border); }
+.stock-adjustment-common-remark textarea { min-height: 64px; resize: vertical; color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; background: var(--field) !important; }
 .stock-adjustment-list table { width: 100%; min-width: 740px; border-collapse: collapse; font-size: .78rem; }
 .stock-adjustment-list th, .stock-adjustment-list td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; }
 .stock-adjustment-list th { color: var(--muted); font-size: .68rem; text-transform: uppercase; }
