@@ -62,11 +62,25 @@ const fit = (doc, value, width) => {
 
 const movementDescription = (movement) => {
   const description = movement.description || movement.transactionType || "Stock Update";
-  return `${movement.transactionType || ""} ${description}`
-    .toUpperCase()
-    .includes("STOCK ADJUSTMENT")
-    ? "SA"
-    : description;
+  if (
+    !`${movement.transactionType || ""} ${description}`
+      .toUpperCase()
+      .includes("STOCK ADJUSTMENT")
+  ) {
+    return description;
+  }
+
+  const adjustmentType =
+    movement.adjustmentType ||
+    description.match(/stock adjustment\s*-\s*(add|reduce)/i)?.[1]?.toUpperCase();
+  const narration =
+    adjustmentType === "ADD"
+      ? "Add Stock"
+      : adjustmentType === "REDUCE"
+        ? "Reduce Stock"
+        : movement.reason || "Stock Adjustment";
+  const remark = movement.remark || "";
+  return `SA - ${narration}${remark ? ` - ${remark}` : ""}`;
 };
 
 const drawLabelValue = (doc, label, value, x, valueX, y) => {
