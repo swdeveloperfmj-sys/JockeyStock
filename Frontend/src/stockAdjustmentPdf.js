@@ -1,4 +1,4 @@
-const PAGE = { width: 612, height: 792, left: 14.4, right: 597.6 };
+const PAGE = { width: 595.28, height: 841.89, left: 14.4, right: 580.88 };
 const ROW_HEIGHT = 16.35;
 const ROWS_PER_PAGE = 5;
 
@@ -28,7 +28,7 @@ const fit = (doc, value, width) => {
 
 export async function createStockAdjustmentPdf(adjustment, products = []) {
   const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "letter", putOnlyUsedFonts: true });
+  const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4", putOnlyUsedFonts: true });
   const productById = new Map(products.map((product) => [String(product._id), product]));
   const items = adjustment.items || [];
   const pages = Array.from({ length: Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE)) }, (_, index) => items.slice(index * ROWS_PER_PAGE, (index + 1) * ROWS_PER_PAGE));
@@ -44,7 +44,7 @@ export async function createStockAdjustmentPdf(adjustment, products = []) {
   };
 
   const drawPage = (pageItems, pageIndex) => {
-    if (pageIndex) doc.addPage("letter", "portrait");
+    if (pageIndex) doc.addPage("a4", "portrait");
     setRegular(9, "bold"); text("ROYAL LANKA AGANCIES", 14.4, 24.85);
     setRegular(8.2); text("-,-,-", 14.4, 35.9);
     doc.setFont("helvetica", "bold"); doc.setFontSize(14.75); doc.setTextColor(0, 0, 255); text("Stock Adjustment", 14.4, 55.55);
@@ -69,8 +69,8 @@ export async function createStockAdjustmentPdf(adjustment, products = []) {
     setRegular(7.35, "bold");
     const headings = [
       ["Pro.Code", 20.4], ["Pro.Name", 96.9], ["Unit", 249.15], ["Cur:QTY", 288.15],
-      ["New Qty", 330.6], ["V:Qty", 374.9], ["S.Price", 414.25], ["C.Price", 463],
-      ["S.Value", 513.5], ["C.Value", 568.6],
+      ["New Qty", 330.6], ["V:Qty", 374.9], ["S.Price", 414.25], ["C.Price", 458],
+      ["S.Value", 505], ["C.Value", 552],
     ];
     headings.forEach(([heading, x]) => text(heading, x, 174.25));
     doc.line(PAGE.left, 181.75, PAGE.right, 181.75);
@@ -89,10 +89,10 @@ export async function createStockAdjustmentPdf(adjustment, products = []) {
       text(number(current), 326, y, { align: "right" });
       text(number(item.resultingStock), 370, y, { align: "right" });
       text(number(variance), 410, y, { align: "right" });
-      text(number(selling), 460, y, { align: "right" });
-      text(number(cost), 510, y, { align: "right" });
-      text(number(Math.abs(variance) * selling), 562, y, { align: "right" });
-      text(number(Math.abs(variance) * cost), 597.6, y, { align: "right" });
+      text(number(selling), 456, y, { align: "right" });
+      text(number(cost), 504, y, { align: "right" });
+      text(number(Math.abs(variance) * selling), 548, y, { align: "right" });
+      text(number(Math.abs(variance) * cost), PAGE.right, y, { align: "right" });
     });
     const tableBottom = 198.1 + Math.max(0, pageItems.length - 1) * ROW_HEIGHT;
     doc.line(PAGE.left, tableBottom, PAGE.right, tableBottom);
@@ -121,8 +121,8 @@ export async function createStockAdjustmentPdf(adjustment, products = []) {
     }
 
     setRegular(6.55, "italic");
-    text("Retail IT Technologies Pvt Ltd. - 0112352326  # NO: 491, Galle Rd, Colombo - 03", 14.4, 767.4);
-    setRegular(8.2); text(`Page ${pageIndex + 1} of ${pages.length}`, 597.6, 769.3, { align: "right" });
+    text("Retail IT Technologies Pvt Ltd. - 0112352326  # NO: 491, Galle Rd, Colombo - 03", 14.4, PAGE.height - 24.5);
+    setRegular(8.2); text(`Page ${pageIndex + 1} of ${pages.length}`, PAGE.right, PAGE.height - 22.6, { align: "right" });
   };
 
   pages.forEach(drawPage);
