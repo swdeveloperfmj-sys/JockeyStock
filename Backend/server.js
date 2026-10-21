@@ -1201,7 +1201,7 @@ app.post('/api/stock-adjustments', async (req, res) => {
 app.get('/api/stock-adjustments', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Stock Adjustment')) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
+  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.some((permission) => ['Stock Adjustment', 'Stock Adjustment Report'].includes(permission))) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
   const filter = { transactionType: 'STOCK ADJUSTMENT' };
   if (req.query.from || req.query.to) { filter.createdAt = {}; if (req.query.from) filter.createdAt.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`); if (req.query.to) filter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`); }
   res.json(await StockUpdate.find(filter).sort({ createdAt: -1 }).limit(2000).lean());
