@@ -1003,7 +1003,7 @@ app.patch('/api/orders/:id', async (req, res) => {
 const allowedSidebarPermissions = new Set([
   'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'PRN', 'Sales Return', 'Sales', 'Customers',
   'Users', 'Locations', 'Roles', 'Stock Update',
-  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report', 'Stock Balance Report', 'Stock Movement Details'
+  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report', 'Stock Balance Report', 'Stock Movement Details', 'Stock Adjustment'
 ]);
 const normalizeSidebarPermissions = (value) => Array.isArray(value)
   ? [...new Set(value.map(String).filter((permission) => allowedSidebarPermissions.has(permission)))]
@@ -1165,6 +1165,28 @@ app.patch('/api/products/:id/stock', async (req, res) => {
     } catch (notificationError) { console.error('Stock-correction notification failed:', notificationError.message); }
   }
   res.json(product);
+});
+app.post('/api/stock-adjustments', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Stock Adjustment')) return res.status(403).json({ message: 'You are not allowed to make stock adjustments.' });
+  const { productId, adjustmentType, quantity, reason, remark = '' } = req.body;
+  const amount = Number(quantity);
+  if (!productId || !['ADD', 'REDUCE'].includes(adjustmentType) || !Number.isInteger(amount) || amount < 1 || !String(reason || '').trim()) return res.status(400).json({ message: 'Product, adjustment type, whole quantity, and reason are required.' });
+  const filter = adjustmentType === 'REDUCE' ? { _id: productId, openingStock: { $gte: amount } } : { _id: productId };
+  const product = await Product.findOneAndUpdate(filter, { $inc: { openingStock: adjustmentType === 'ADD' ? amount : -amount } }, { new: true, runValidators: true });
+  if (!product) return res.status(400).json({ message: adjustmentType === 'REDUCE' ? 'Cannot reduce more than the available stock.' : 'Product not found.' });
+  const update = await StockUpdate.create({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, transactionType: 'STOCK ADJUSTMENT', adjustmentType, reason: String(reason).trim(), remark: String(remark).trim(), description: String(remark).trim() });
+  publishStockUpdate([product]);
+  res.status(201).json(update);
+});
+app.get('/api/stock-adjustments', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Stock Adjustment')) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
+  const filter = { transactionType: 'STOCK ADJUSTMENT' };
+  if (req.query.from || req.query.to) { filter.createdAt = {}; if (req.query.from) filter.createdAt.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`); if (req.query.to) filter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`); }
+  res.json(await StockUpdate.find(filter).sort({ createdAt: -1 }).limit(2000).lean());
 });
 app.post('/api/products/zero-all-stock', async (req, res) => {
   const user = await currentUser(req);

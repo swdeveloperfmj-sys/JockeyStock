@@ -11,7 +11,10 @@ const stockUpdateSchema = new mongoose.Schema({
   managerName: { type: String, required: true, trim: true },
   documentNo: { type: String, trim: true, default: '' },
   transactionType: { type: String, trim: true, default: 'STOCK UPDATE' },
-  description: { type: String, trim: true, default: '' }
+  description: { type: String, trim: true, default: '' },
+  adjustmentType: { type: String, enum: ['ADD', 'REDUCE'], default: undefined },
+  reason: { type: String, trim: true, default: '' },
+  remark: { type: String, trim: true, default: '' }
 }, { timestamps: true });
 
 stockUpdateSchema.index({ createdAt: -1 });

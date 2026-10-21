@@ -48,6 +48,7 @@ import GrnReportPage from "./GrnReportPage.jsx";
 import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
 import StockMovementDetailsPage from "./StockMovementDetailsPage.jsx";
+import StockAdjustmentPage from "./StockAdjustmentPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
@@ -197,7 +198,7 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
   LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
@@ -2617,7 +2618,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   // Sales Return was introduced after some Super Admin accounts already had a
   // saved permission list. Keep it available to Super Admins without requiring
   // each existing account to be edited once.
-  const canSeeSidebar = (permission) => ["Sales Return", "Stock Movement Details"].includes(permission) && user.role === "SUPER_ADMIN"
+  const canSeeSidebar = (permission) => ["Sales Return", "Stock Movement Details", "Stock Adjustment"].includes(permission) && user.role === "SUPER_ADMIN"
     ? true
     : !permissionConfigured || user.sidebarPermissions.includes(permission);
   const [c, setC] = useState(false),
@@ -2722,6 +2723,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         [FiCodesandbox, "Dashboard"],
         [FiBox, "Inventory"],
         [FiFileText, "Stock Updates"],
+        [FiBox, "Stock Adjustment"],
         [FiFileText, "GRN"],
         [FiFileText, "PRN"],
         [FiFileText, "Sales Return"],
@@ -2753,6 +2755,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     [FiCodesandbox, "Dashboard"],
     [FiBox, "Inventory"],
     [FiFileText, "Stock Updates"],
+    [FiBox, "Stock Adjustment"],
     [FiFileText, "GRN"],
     [FiFileText, "PRN"],
     [FiFileText, "Sales Return"],
@@ -2960,6 +2963,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             ? `Manage ${view.toLowerCase()}.`
             : view === "Stock Updates"
               ? "Review stock update history."
+            : view === "Stock Adjustment"
+              ? "Correct inventory stock variances."
             : view === "GRN"
               ? "Create a goods received note."
               : view === "PRN"
@@ -3020,6 +3025,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <CustomersPage />
     ) : view === "Stock Updates" && admin ? (
       <StockUpdatesHistoryPage />
+    ) : view === "Stock Adjustment" && (admin || canSeeSidebar("Stock Adjustment")) ? (
+      <StockAdjustmentPage />
     ) : view === "GRN" && (admin || locationManager) ? (
       <GrnPageNew user={user} />
     ) : view === "PRN" && (admin || locationManager) ? (

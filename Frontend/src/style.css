@@ -2471,6 +2471,12 @@ td small {
 .sales-register-actions button { display: inline-flex; align-items: center; gap: 7px; width: auto; min-height: 42px; margin: 0; padding: 9px 13px; white-space: nowrap; }
 .sales-register-actions .secondary-action { border: 1px solid var(--field-border); background: var(--surface) !important; color: var(--ink) !important; box-shadow: none !important; }
 .sales-register-actions .pivot-view-button { border-color: #286aa0; background: #2f75b5 !important; color: #fff !important; box-shadow: 0 7px 18px rgba(47,117,181,.22) !important; }
+.stock-adjustment-page { display: grid; gap: 14px; }
+.stock-adjustment-form { align-items: end; }
+.stock-adjustment-form textarea { min-height: 42px; resize: vertical; }
+.stock-adjustment-form small { align-self: center; color: var(--muted); font-size: .73rem; }
+.stock-adjustment-add { color: #167556; }
+.stock-adjustment-reduce { color: #b33131; }
 .sales-register-table { min-width: 2520px; }
 .sales-register-table th { white-space: nowrap; }
 .sales-register-table td { min-width: 86px; vertical-align: middle; }
