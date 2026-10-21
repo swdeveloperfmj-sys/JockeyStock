@@ -1170,15 +1170,27 @@ app.post('/api/stock-adjustments', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Stock Adjustment')) return res.status(403).json({ message: 'You are not allowed to make stock adjustments.' });
-  const { productId, adjustmentType, quantity, reason, remark = '' } = req.body;
-  const amount = Number(quantity);
-  if (!productId || !['ADD', 'REDUCE'].includes(adjustmentType) || !Number.isInteger(amount) || amount < 1 || !String(reason || '').trim()) return res.status(400).json({ message: 'Product, adjustment type, whole quantity, and reason are required.' });
-  const filter = adjustmentType === 'REDUCE' ? { _id: productId, openingStock: { $gte: amount } } : { _id: productId };
-  const product = await Product.findOneAndUpdate(filter, { $inc: { openingStock: adjustmentType === 'ADD' ? amount : -amount } }, { new: true, runValidators: true });
-  if (!product) return res.status(400).json({ message: adjustmentType === 'REDUCE' ? 'Cannot reduce more than the available stock.' : 'Product not found.' });
-  const update = await StockUpdate.create({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, transactionType: 'STOCK ADJUSTMENT', adjustmentType, reason: String(reason).trim(), remark: String(remark).trim(), description: String(remark).trim() });
-  publishStockUpdate([product]);
-  res.status(201).json(update);
+  const items = Array.isArray(req.body.items) ? req.body.items : [req.body];
+  if (!items.length || items.length > 100) return res.status(400).json({ message: 'Add between 1 and 100 adjustment items.' });
+  const session = await mongoose.startSession();
+  let changedProducts = [], updates = [];
+  try {
+    await session.withTransaction(async () => {
+      for (const item of items) {
+        const amount = Number(item.quantity);
+        if (!item.productId || !['ADD', 'REDUCE'].includes(item.adjustmentType) || !Number.isInteger(amount) || amount < 1 || !String(item.reason || '').trim()) throw new Error('Every item needs a product, type, whole quantity, and reason.');
+        const filter = item.adjustmentType === 'REDUCE' ? { _id: item.productId, openingStock: { $gte: amount } } : { _id: item.productId };
+        const product = await Product.findOneAndUpdate(filter, { $inc: { openingStock: item.adjustmentType === 'ADD' ? amount : -amount } }, { new: true, runValidators: true, session });
+        if (!product) throw new Error(item.adjustmentType === 'REDUCE' ? 'Cannot reduce more than the available stock.' : 'Product not found.');
+        changedProducts.push(product);
+        updates.push({ productId: product._id, productCode: product.productCode, productName: product.productName, quantityAdded: item.adjustmentType === 'ADD' ? amount : -amount, resultingStock: product.openingStock, location: product.plant, managerId: user._id, managerName: user.name, transactionType: 'STOCK ADJUSTMENT', adjustmentType: item.adjustmentType, reason: String(item.reason).trim(), remark: String(item.remark || '').trim(), description: String(item.remark || '').trim() });
+      }
+      await StockUpdate.insertMany(updates, { session });
+    });
+    publishStockUpdate(changedProducts);
+    res.status(201).json({ adjusted: updates.length, updates });
+  } catch (error) { res.status(400).json({ message: error.message || 'Could not save stock adjustments.' }); }
+  finally { await session.endSession(); }
 });
 app.get('/api/stock-adjustments', async (req, res) => {
   const user = await currentUser(req);

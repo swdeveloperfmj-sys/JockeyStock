@@ -2471,12 +2471,46 @@ td small {
 .sales-register-actions button { display: inline-flex; align-items: center; gap: 7px; width: auto; min-height: 42px; margin: 0; padding: 9px 13px; white-space: nowrap; }
 .sales-register-actions .secondary-action { border: 1px solid var(--field-border); background: var(--surface) !important; color: var(--ink) !important; box-shadow: none !important; }
 .sales-register-actions .pivot-view-button { border-color: #286aa0; background: #2f75b5 !important; color: #fff !important; box-shadow: 0 7px 18px rgba(47,117,181,.22) !important; }
-.stock-adjustment-page { display: grid; gap: 14px; }
-.stock-adjustment-form { align-items: end; }
+.stock-adjustment-page { display: grid; gap: 18px; }
+form.stock-adjustment-card { width: 100%; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: 0 12px 28px rgba(0,0,0,.08); }
+.stock-adjustment-form { display: grid; grid-template-columns: minmax(260px, 2.1fr) minmax(150px, 1fr) minmax(110px, .7fr) minmax(180px, 1.25fr) minmax(200px, 1.5fr) auto; align-items: end; gap: 12px; padding: 18px; }
+.stock-adjustment-form label { display: grid; gap: 6px; color: var(--muted); font-size: .72rem; font-weight: 800; }
+.stock-adjustment-form input,
+.stock-adjustment-form select,
+.stock-adjustment-form textarea { color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; background: var(--field) !important; }
+.stock-adjustment-form input::placeholder,
+.stock-adjustment-form textarea::placeholder { color: var(--muted) !important; -webkit-text-fill-color: var(--muted) !important; opacity: 1; }
+.stock-adjustment-form select option { background: var(--field); color: var(--ink); }
 .stock-adjustment-form textarea { min-height: 42px; resize: vertical; }
-.stock-adjustment-form small { align-self: center; color: var(--muted); font-size: .73rem; }
+.stock-adjustment-form small { color: var(--muted); font-size: .73rem; }
+.stock-adjustment-card footer { display: flex; justify-content: flex-end; padding: 13px 18px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 92%, #2f75b5); }
+.stock-adjustment-card footer button { width: auto; min-width: 190px; }
+.stock-adjustment-list { margin: 0 18px 18px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.stock-adjustment-list > div { display: flex; justify-content: space-between; padding: 11px 13px; border-bottom: 1px solid var(--border); }
+.stock-adjustment-list > div span, .stock-adjustment-list p { color: var(--muted); font-size: .75rem; }
+.stock-adjustment-list p { padding: 10px 13px; }
+.stock-adjustment-list table { width: 100%; min-width: 740px; border-collapse: collapse; font-size: .78rem; }
+.stock-adjustment-list th, .stock-adjustment-list td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+.stock-adjustment-list th { color: var(--muted); font-size: .68rem; text-transform: uppercase; }
+.stock-adjustment-list td:last-child button { width: auto; min-height: 28px; margin: 0; padding: 5px 7px; background: transparent !important; color: #c54040 !important; box-shadow: none; }
 .stock-adjustment-add { color: #167556; }
 .stock-adjustment-reduce { color: #b33131; }
+@media (max-width: 1200px) { .stock-adjustment-form { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .stock-adjustment-page { gap: 12px; }
+  .stock-adjustment-page .page-title h2 { margin-bottom: 10px; }
+  .stock-adjustment-form { grid-template-columns: 1fr; gap: 10px; padding: 14px; }
+  .stock-adjustment-form label { margin: 0; }
+  .stock-adjustment-form button { width: 100%; }
+  .stock-adjustment-card footer { padding: 12px 14px; }
+  .stock-adjustment-card footer button { width: 100%; }
+  .stock-adjustment-list { margin: 0 14px 14px; }
+  .stock-adjustment-list > div { align-items: flex-start; gap: 7px; flex-direction: column; }
+  .stock-adjustment-page .sales-register-actions { display: grid; grid-template-columns: 1fr 1fr; margin: 0; }
+  .stock-adjustment-page .sales-register-actions button { width: 100%; justify-content: center; }
+  .stock-adjustment-page .audit-filter { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 14px; }
+  .stock-adjustment-page .audit-filter label { margin: 0; }
+}
 .sales-register-table { min-width: 2520px; }
 .sales-register-table th { white-space: nowrap; }
 .sales-register-table td { min-width: 86px; vertical-align: middle; }
