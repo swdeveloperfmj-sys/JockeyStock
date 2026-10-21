@@ -49,6 +49,8 @@ import SalesRegisterPage from "./SalesRegisterPage.jsx";
 import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
 import StockMovementDetailsPage from "./StockMovementDetailsPage.jsx";
 import StockAdjustmentPage from "./StockAdjustmentPage.jsx";
+import StockAdjustmentReportPage from "./StockAdjustmentReportPage.jsx";
+import SupplierWiseStockMovementPage from "./SupplierWiseStockMovementPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
@@ -199,7 +201,7 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "Stock Adjustment Report", "Supplier Wise Stock Movement", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
   LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
@@ -2619,9 +2621,15 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   // Sales Return was introduced after some Super Admin accounts already had a
   // saved permission list. Keep it available to Super Admins without requiring
   // each existing account to be edited once.
-  const canSeeSidebar = (permission) => ["Sales Return", "Stock Movement Details", "Stock Adjustment"].includes(permission) && user.role === "SUPER_ADMIN"
-    ? true
-    : !permissionConfigured || user.sidebarPermissions.includes(permission);
+  const canSeeSidebar = (permission) => {
+    if (["Stock Adjustment Report", "Supplier Wise Stock Movement"].includes(permission))
+      return user.role === "SUPER_ADMIN" || (
+        permissionConfigured && user.sidebarPermissions.includes(permission)
+      );
+    return ["Sales Return", "Stock Movement Details", "Stock Adjustment"].includes(permission) && user.role === "SUPER_ADMIN"
+      ? true
+      : !permissionConfigured || user.sidebarPermissions.includes(permission);
+  };
   const [c, setC] = useState(false),
     [m, setM] = useState(false),
     [headerHidden, setHeaderHidden] = useState(false),
@@ -2966,6 +2974,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Review stock update history."
             : view === "Stock Adjustment"
               ? "Correct inventory stock variances."
+            : view === "Stock Adjustment Report"
+              ? "Stock adjustment transaction inquiry."
             : view === "GRN"
               ? "Create a goods received note."
               : view === "PRN"
@@ -2978,6 +2988,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Sales register report."
             : view === "Stock Balance Report"
               ? "Stock balance report."
+            : view === "Supplier Wise Stock Movement"
+              ? "Review supplier stock movement transactions."
             : view === "Stock Movement Details"
               ? "Review product stock movements."
             : view === "Stock Update"
@@ -3028,6 +3040,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <StockUpdatesHistoryPage />
     ) : view === "Stock Adjustment" && (admin || canSeeSidebar("Stock Adjustment")) ? (
       <StockAdjustmentPage />
+    ) : view === "Stock Adjustment Report" && (admin || canSeeSidebar("Stock Adjustment Report")) ? (
+      <StockAdjustmentReportPage />
     ) : view === "GRN" && (admin || locationManager) ? (
       <GrnPageNew user={user} />
     ) : view === "PRN" && (admin || locationManager) ? (
@@ -3040,6 +3054,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <SalesRegisterPage />
     ) : view === "Stock Balance Report" && (admin || canSeeSidebar("Stock Balance Report")) ? (
       <StockBalanceReportPage />
+    ) : view === "Supplier Wise Stock Movement" && (admin || canSeeSidebar("Supplier Wise Stock Movement")) ? (
+      <SupplierWiseStockMovementPage user={user} />
     ) : view === "Stock Movement Details" && (admin || canSeeSidebar("Stock Movement Details")) ? (
       <StockMovementDetailsPage user={user} />
     ) : view === "Locations" ? (
@@ -3406,7 +3422,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report"))) ||
+          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Adjustment Report") || canSeeSidebar("Supplier Wise Stock Movement"))) ||
             (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
@@ -3467,7 +3483,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                           </div>
                         )}
                       </>}
-                      {(admin || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Movement Details")) && <>
+                      {(admin || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Movement Details") || canSeeSidebar("Supplier Wise Stock Movement")) && <>
                         <button
                           type="button"
                           className="sidebar-menu-trigger sidebar-submenu-trigger"
@@ -3505,10 +3521,23 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                               <FiFileText />
                               <span>Stock Movement Details</span>
                             </a>}
+                            {canSeeSidebar("Supplier Wise Stock Movement") && <a
+                              className={`sidebar-report-link${view === "Supplier Wise Stock Movement" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Supplier Wise Stock Movement");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Supplier Wise Stock Movement</span>
+                            </a>}
                           </div>
                         )}
                       </>}
-                      {canSeeSidebar("GRN Report") && <>
+                      {(canSeeSidebar("GRN Report") || canSeeSidebar("Stock Adjustment Report")) && <>
                         <button
                           type="button"
                           className="sidebar-menu-trigger sidebar-submenu-trigger"
@@ -3519,19 +3548,34 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                           <FiChevronDown className={`sidebar-menu-chevron${transactionInquiryOpen ? " is-open" : ""}`} />
                         </button>
                         {transactionInquiryOpen && (
-                          <a
-                            className={`sidebar-report-link${view === "GRN Report" ? " active" : ""}`}
-                            href="#"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              setOrderToEdit(null);
-                              setV("GRN Report");
-                              setM(false);
-                            }}
-                          >
-                            <FiFileText />
-                            <span>Goods Received Note (GRN)</span>
-                          </a>
+                          <div className="sidebar-submenu sidebar-submenu-deep">
+                            {canSeeSidebar("GRN Report") && <a
+                              className={`sidebar-report-link${view === "GRN Report" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("GRN Report");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Goods Received Note (GRN)</span>
+                            </a>}
+                            {canSeeSidebar("Stock Adjustment Report") && <a
+                              className={`sidebar-report-link${view === "Stock Adjustment Report" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Stock Adjustment Report");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Stock Adjustment</span>
+                            </a>}
+                          </div>
                         )}
                       </>}
                     </div>

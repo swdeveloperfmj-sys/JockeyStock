@@ -27,20 +27,18 @@ const app = express();
 const port = process.env.PORT || 5000;
 const INVENTORY_LOCATION = 'Head Office';
 const LEGACY_INVENTORY_LOCATION = 'FMJ New Plant';
+const productMasterLocation = (location) =>
+  location === LEGACY_INVENTORY_LOCATION ? INVENTORY_LOCATION : location;
 let databaseConnection;
 let inventoryLocationMigration;
 const migrateInventoryLocation = async () => {
   if (inventoryLocationMigration) return inventoryLocationMigration;
   inventoryLocationMigration = (async () => {
-    // The original FMJ New Plant inventory is now operated from Head Office.
-    // Use the collection directly because `plant` is immutable on Product.
+    // Product master and stock balances remain shared at Head Office; FMJ
+    // operations resolve to that catalog but retain FMJ on their documents.
     await Product.collection.updateMany(
       { plant: LEGACY_INVENTORY_LOCATION },
       { $set: { plant: INVENTORY_LOCATION } }
-    );
-    await Order.updateMany(
-      { location: LEGACY_INVENTORY_LOCATION },
-      { $set: { location: INVENTORY_LOCATION } }
     );
   })().catch((error) => {
     inventoryLocationMigration = undefined;
@@ -419,6 +417,215 @@ app.get('/api/reports/stock-balance', async (req, res) => {
     lastUpdated: product.updatedAt,
   })));
 });
+app.get('/api/reports/supplier-stock-movement', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Supplier Wise Stock Movement')) return res.status(403).json({ message: 'You are not allowed to view supplier stock movements.' });
+
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, Number.parseInt(req.query.pageSize, 10) || 100));
+  const supplierCode = String(req.query.supplierCode || '').trim().toUpperCase();
+  const location = user.role === 'LOCATION_MANAGER'
+    ? user.location
+    : String(req.query.location || '').trim();
+  const movementFilter = {};
+  if (req.query.from || req.query.to) {
+    movementFilter.createdAt = {};
+    if (req.query.from) movementFilter.createdAt.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`);
+    if (req.query.to) movementFilter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`);
+  }
+
+  const [result] = await StockUpdate.aggregate([
+    { $match: movementFilter },
+    {
+      $lookup: {
+        from: Product.collection.name,
+        localField: 'productId',
+        foreignField: '_id',
+        as: 'product'
+      }
+    },
+    { $unwind: '$product' },
+    {
+      $match: {
+        ...(supplierCode ? { 'product.supplierCode': supplierCode } : {}),
+        ...(location ? { location } : {})
+      }
+    },
+    {
+      $facet: {
+        movements: [
+          { $sort: { createdAt: -1, _id: -1 } },
+          { $skip: (page - 1) * pageSize },
+          { $limit: pageSize },
+          {
+            $project: {
+              _id: 1,
+              supplierCode: '$product.supplierCode',
+              productCode: '$product.productCode',
+              productName: '$product.productName',
+              documentNo: 1,
+              createdAt: 1,
+              transactionType: 1,
+              description: 1,
+              quantityAdded: 1,
+              resultingStock: 1,
+              location: 1
+            }
+          }
+        ],
+        total: [{ $count: 'value' }]
+      }
+    }
+  ]);
+
+  res.json({
+    movements: result?.movements || [],
+    total: result?.total[0]?.value || 0,
+    page,
+    pageSize
+  });
+});
+app.get('/api/reports/supplier-stock-movement/pdf-data', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Supplier Wise Stock Movement')) return res.status(403).json({ message: 'You are not allowed to view supplier stock movements.' });
+
+  const supplierCode = String(req.query.supplierCode || '').trim().toUpperCase();
+  const location = user.role === 'LOCATION_MANAGER'
+    ? user.location
+    : String(req.query.location || '').trim();
+  const dateFilter = (field) => {
+    if (!req.query.from && !req.query.to) return {};
+    const range = {};
+    if (req.query.from) range.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`);
+    if (req.query.to) range.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`);
+    return { [field]: range };
+  };
+  const locationFilter = location ? { location } : {};
+  const [grns, prns, orders, returns] = await Promise.all([
+    GoodsReceivedNote.find({ ...locationFilter, ...dateFilter('grnDate') })
+      .select('supplierName items')
+      .lean(),
+    PurchaseReturnNote.find({ ...locationFilter, status: 'POSTED', ...dateFilter('prnDate') })
+      .select('supplierName items')
+      .lean(),
+    Order.find({ ...locationFilter, status: 'COMPLETED', ...dateFilter('createdAt') })
+      .select('items')
+      .lean(),
+    SalesReturn.find({ ...locationFilter, status: 'POSTED', ...dateFilter('returnDate') })
+      .select('items')
+      .lean()
+  ]);
+  const productIds = [...new Set([
+    ...grns.flatMap((note) => note.items.map((item) => String(item.productId))),
+    ...prns.flatMap((note) => note.items.map((item) => String(item.productId))),
+    ...orders.flatMap((order) => order.items.map((item) => String(item.productId))),
+    ...returns.flatMap((record) => record.items.map((item) => String(item.productId)))
+  ])].filter((id) => mongoose.isValidObjectId(id));
+  const products = productIds.length
+    ? await Product.find({ _id: { $in: productIds } })
+      .select('_id productCode productName gender categoryCode subCategoryCode supplierCode costPrice sellingPrice openingStock')
+      .lean()
+    : [];
+  const productById = new Map(products.map((product) => [String(product._id), product]));
+  const suppliers = new Map();
+  const getProductRow = (productId, supplierName = '') => {
+    const product = productById.get(String(productId));
+    if (!product || (supplierCode && product.supplierCode !== supplierCode)) return null;
+    if (!suppliers.has(product.supplierCode)) {
+      suppliers.set(product.supplierCode, {
+        supplierCode: product.supplierCode,
+        supplierName: supplierName || product.supplierCode,
+        products: new Map()
+      });
+    }
+    const supplier = suppliers.get(product.supplierCode);
+    if (supplierName && supplier.supplierName === supplier.supplierCode)
+      supplier.supplierName = supplierName;
+    if (!supplier.products.has(String(product._id))) {
+      supplier.products.set(String(product._id), {
+        productCode: product.productCode,
+        productName: product.productName,
+        department: product.gender || '',
+        category: product.categoryCode || product.subCategoryCode || '',
+        purchaseQuantity: 0,
+        purchaseValue: 0,
+        returnQuantity: 0,
+        returnValue: 0,
+        salesQuantity: 0,
+        salesValue: 0,
+        salesReturnQuantity: 0,
+        salesReturnValue: 0,
+        netPurchaseQuantity: 0,
+        netPurchaseValue: 0,
+        netSalesQuantity: 0,
+        netSalesCost: 0,
+        netSalesValue: 0,
+        stockQuantity: Number(product.openingStock || 0),
+        stockValue: Number(product.openingStock || 0) * Number(product.costPrice || 0),
+        costPrice: Number(product.costPrice || 0)
+      });
+    }
+    return supplier.products.get(String(product._id));
+  };
+  grns.forEach((note) => note.items.forEach((item) => {
+    const row = getProductRow(item.productId, note.supplierName);
+    if (!row) return;
+    row.purchaseQuantity += Number(item.quantity || 0);
+    row.purchaseValue += Number(item.amount || 0);
+  }));
+  prns.forEach((note) => note.items.forEach((item) => {
+    const row = getProductRow(item.productId, note.supplierName);
+    if (!row) return;
+    row.returnQuantity += Number(item.quantity || 0);
+    row.returnValue += Number(item.amount || 0);
+  }));
+  orders.forEach((order) => order.items.forEach((item) => {
+    const row = getProductRow(item.productId);
+    if (!row) return;
+    row.salesQuantity += Number(item.quantity || 0);
+    row.salesValue += Number(item.total || 0);
+  }));
+  returns.forEach((record) => record.items.forEach((item) => {
+    const row = getProductRow(item.productId);
+    if (!row) return;
+    row.salesReturnQuantity += Number(item.quantity || 0);
+    row.salesReturnValue += Number(item.amount || 0);
+  }));
+
+  const reportSuppliers = [...suppliers.values()].map((supplier) => {
+    const supplierProducts = [...supplier.products.values()].map((product) => {
+      product.netPurchaseQuantity = product.purchaseQuantity - product.returnQuantity;
+      product.netPurchaseValue = product.purchaseValue - product.returnValue;
+      product.netSalesQuantity = product.salesQuantity - product.salesReturnQuantity;
+      product.netSalesCost = product.netSalesQuantity * product.costPrice;
+      product.netSalesValue = product.salesValue - product.salesReturnValue;
+      return product;
+    });
+    const totals = supplierProducts.reduce((sum, product) => {
+      [
+        'purchaseQuantity', 'purchaseValue', 'returnQuantity', 'returnValue',
+          'netPurchaseQuantity', 'netPurchaseValue', 'salesQuantity', 'salesValue',
+          'salesReturnQuantity', 'salesReturnValue', 'netSalesQuantity',
+          'netSalesCost', 'netSalesValue', 'stockQuantity', 'stockValue'
+      ].forEach((key) => { sum[key] += Number(product[key] || 0); });
+      return sum;
+    }, {
+      purchaseQuantity: 0, purchaseValue: 0, returnQuantity: 0, returnValue: 0,
+      netPurchaseQuantity: 0, netPurchaseValue: 0, salesQuantity: 0, salesValue: 0,
+      salesReturnQuantity: 0, salesReturnValue: 0, netSalesQuantity: 0,
+      netSalesCost: 0, netSalesValue: 0, stockQuantity: 0, stockValue: 0
+    });
+    return {
+      supplierCode: supplier.supplierCode,
+      supplierName: supplier.supplierName,
+      totals,
+      products: supplierProducts
+    };
+  }).sort((first, second) => first.supplierCode.localeCompare(second.supplierCode));
+  res.json({ suppliers: reportSuppliers });
+});
 app.get('/api/reports/bin-card', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -426,7 +633,7 @@ app.get('/api/reports/bin-card', async (req, res) => {
   const productCode = String(req.query.productCode || '').trim();
   const location = user.role === 'LOCATION_MANAGER' ? user.location : String(req.query.location || '').trim();
   if (!productCode || !location) return res.status(400).json({ message: 'Product code and location are required.' });
-  const product = await Product.findOne({ $or: [{ productCode }, { sku: productCode }], plant: location }).lean();
+  const product = await Product.findOne({ $or: [{ productCode }, { sku: productCode }], plant: productMasterLocation(location) }).lean();
   if (!product) return res.status(404).json({ message: 'Product not found at the selected location.' });
   const filter = { productId: product._id, location };
   if (req.query.from || req.query.to) {
@@ -435,7 +642,7 @@ app.get('/api/reports/bin-card', async (req, res) => {
     if (req.query.to) filter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`);
   }
   const movements = await StockUpdate.find(filter).sort({ createdAt: 1 }).lean();
-  res.json({ product: { productCode: product.productCode, productName: product.productName, costPrice: product.costPrice, sellingPrice: product.sellingPrice, location: product.plant }, movements });
+  res.json({ product: { productCode: product.productCode, productName: product.productName, costPrice: product.costPrice, sellingPrice: product.sellingPrice, location }, movements });
 });
 
 const salesPivotDimensions = new Set([
@@ -685,7 +892,7 @@ app.post('/api/orders/:id/cancel', async (req, res) => {
       }
       for (const item of order.items) {
         const restored = await Product.updateOne(
-          { _id: item.productId, plant: order.location },
+          { _id: item.productId, plant: productMasterLocation(order.location) },
           { $inc: { openingStock: item.quantity } },
           { session: dbSession }
         );
@@ -896,7 +1103,7 @@ app.post('/api/orders', async (req, res) => {
         customerPaymentTerm: customer.paymentTerm,
         salesRepId: user._id,
         salesRepName: user.name,
-        location: orderPlants[0],
+        location: user.role === 'LOCATION_MANAGER' ? user.location : orderPlants[0],
         items: requestedItems,
         totalQuantity,
         totalAmount
@@ -955,12 +1162,12 @@ app.patch('/api/orders/:id', async (req, res) => {
       const deliveryContact = selectedBranch?.contact || customer.contact || '';
       changedProductIds = order.items.map((item) => item.productId);
       for (const oldItem of order.items) {
-        await Product.updateOne({ _id: oldItem.productId, plant: order.location }, { $inc: { openingStock: oldItem.quantity } }, { session: dbSession });
+        await Product.updateOne({ _id: oldItem.productId, plant: productMasterLocation(order.location) }, { $inc: { openingStock: oldItem.quantity } }, { session: dbSession });
       }
       const requestedItems = await Promise.all(items.map(async (item) => {
         const product = await Product.findById(item.productId).session(dbSession);
         const quantity = Number(item.quantity);
-        if (!product || product.plant !== order.location) throw new Error('Products must belong to the original factory.');
+        if (!product || product.plant !== productMasterLocation(order.location)) throw new Error('Products must belong to the original factory.');
         if (product.openingStock < quantity) throw new Error(`${product.productName} has only ${product.openingStock} ${product.unit} available.`);
         return { productId: product._id, productCode: product.productCode, productName: product.productName, style: product.style, color: product.color, size: product.size, quantity, unitPrice: Number(product.sellingPrice), total: Number(product.sellingPrice) * quantity, plant: product.plant };
       }));
@@ -1003,7 +1210,8 @@ app.patch('/api/orders/:id', async (req, res) => {
 const allowedSidebarPermissions = new Set([
   'Dashboard', 'Inventory', 'Stock Updates', 'GRN', 'PRN', 'Sales Return', 'Sales', 'Customers',
   'Users', 'Locations', 'Roles', 'Stock Update',
-  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report', 'Stock Balance Report', 'Stock Movement Details', 'Stock Adjustment'
+  'Create Order', 'Pending Orders', 'Shipment', 'Sales Register', 'GRN Report', 'Stock Balance Report',
+  'Stock Movement Details', 'Stock Adjustment', 'Stock Adjustment Report', 'Supplier Wise Stock Movement'
 ]);
 const normalizeSidebarPermissions = (value) => Array.isArray(value)
   ? [...new Set(value.map(String).filter((permission) => allowedSidebarPermissions.has(permission)))]
@@ -1106,8 +1314,11 @@ const parseProductName = (value = '') => {
 app.get('/api/products', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  const filter = user.role === 'LOCATION_MANAGER' ? { plant: user.location } : {};
-  res.json(await Product.find(filter).sort({ createdAt: -1 }));
+  const filter = user.role === 'LOCATION_MANAGER' ? { plant: productMasterLocation(user.location) } : {};
+  const products = await Product.find(filter).sort({ createdAt: -1 });
+  res.json(user.role === 'LOCATION_MANAGER'
+    ? products.map((product) => ({ ...product.toObject(), plant: user.location }))
+    : products);
 });
 app.post('/api/products/:id/stock', async (req, res) => {
   const user = await currentUser(req);
@@ -1116,7 +1327,7 @@ app.post('/api/products/:id/stock', async (req, res) => {
   const quantity = Number(req.body.quantity);
   if (!Number.isInteger(quantity) || quantity < 1) return res.status(400).json({ message: 'Enter a whole quantity of at least 1.' });
   const product = await Product.findOneAndUpdate(
-    { _id: req.params.id, plant: user.location },
+    { _id: req.params.id, plant: productMasterLocation(user.location) },
     { $inc: { openingStock: quantity } },
     { new: true, runValidators: true }
   );
@@ -1201,7 +1412,7 @@ app.post('/api/stock-adjustments', async (req, res) => {
 app.get('/api/stock-adjustments', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Stock Adjustment')) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
+  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.some((permission) => ['Stock Adjustment', 'Stock Adjustment Report'].includes(permission))) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
   const filter = { transactionType: 'STOCK ADJUSTMENT' };
   if (req.query.from || req.query.to) { filter.createdAt = {}; if (req.query.from) filter.createdAt.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`); if (req.query.to) filter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`); }
   res.json(await StockUpdate.find(filter).sort({ createdAt: -1 }).limit(2000).lean());
@@ -1641,7 +1852,7 @@ app.post('/api/grns', async (req, res) => {
       const counter = await Counter.findOneAndUpdate({ key: 'GRN' }, { $inc: { value: 1 } }, { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession });
       const grnItems = [];
       for (const item of items) {
-        const product = await Product.findOne({ _id: item.productId, plant: location }).session(dbSession);
+        const product = await Product.findOne({ _id: item.productId, plant: productMasterLocation(location) }).session(dbSession);
         if (!product) throw new Error('One of the selected products does not belong to this location.');
         const quantity = Number(item.quantity), costPrice = Number(item.costPrice), sellingPrice = Number(item.sellingPrice);
         const updated = await Product.findByIdAndUpdate(
@@ -1708,7 +1919,7 @@ app.post('/api/prns', async (req, res) => {
       const prnItems = [];
       for (const item of items) {
         if (!mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1) throw new Error('Each item needs a valid product and whole return quantity.');
-        const product = await Product.findOne({ _id: item.productId, plant: location }).session(dbSession);
+        const product = await Product.findOne({ _id: item.productId, plant: productMasterLocation(location) }).session(dbSession);
         if (!product) throw new Error('One of the selected products does not belong to this location.');
         const quantity = Number(item.quantity); if (Number(product.openingStock || 0) < quantity) throw new Error(`${product.productCode} does not have enough available stock.`);
         const costPrice = Number(product.costPrice || 0);
@@ -1739,7 +1950,7 @@ app.post('/api/prns/:id/reverse', async (req, res) => {
       if (user.role === 'LOCATION_MANAGER' && prn.location !== user.location) throw new Error('You can reverse PRNs only for your own location.');
       if (prn.status === 'REVERSED') throw new Error('This PRN has already been reversed.');
       for (const item of prn.items) {
-        const updated = await Product.findOneAndUpdate({ _id: item.productId, plant: prn.location }, { $inc: { openingStock: Number(item.quantity) } }, { new: true, session: dbSession });
+        const updated = await Product.findOneAndUpdate({ _id: item.productId, plant: productMasterLocation(prn.location) }, { $inc: { openingStock: Number(item.quantity) } }, { new: true, session: dbSession });
         if (!updated) throw new Error(`Product ${item.productCode} is no longer available at this location.`);
         changedProducts.push(updated);
       }
@@ -1769,7 +1980,7 @@ app.put('/api/prns/:id', async (req, res) => {
       if (location !== prn.location) throw new Error('Reverse this PRN and create a new one to use a different location.');
       const quantities = new Map(prn.items.map((item) => [String(item.productId), Number(item.quantity)]));
       for (const item of items) { if (!mongoose.isValidObjectId(item.productId) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1) throw new Error('Each item needs a valid product and whole return quantity.'); quantities.set(String(item.productId), -Number(item.quantity) + (quantities.get(String(item.productId)) || 0)); }
-      const productIds = [...quantities.keys()]; const products = await Product.find({ _id: { $in: productIds }, plant: location }).session(dbSession);
+      const productIds = [...quantities.keys()]; const products = await Product.find({ _id: { $in: productIds }, plant: productMasterLocation(location) }).session(dbSession);
       if (products.length !== productIds.length) throw new Error('One of the selected products does not belong to this location.');
       for (const product of products) { const adjustment = quantities.get(String(product._id)) || 0; if (Number(product.openingStock || 0) + adjustment < 0) throw new Error(`${product.productCode} does not have enough available stock.`); }
       const productById = new Map(products.map((product) => [String(product._id), product]));
@@ -1825,7 +2036,7 @@ app.post('/api/sales-returns', async (req, res) => {
       }
       const productIds = [...new Set(items.map((item) => String(item.productId)))];
       if (productIds.some((id) => !mongoose.isValidObjectId(id))) throw new Error('One or more products are invalid.');
-      const products = await Product.find({ _id: { $in: productIds }, plant: location }).session(dbSession);
+      const products = await Product.find({ _id: { $in: productIds }, plant: productMasterLocation(location) }).session(dbSession);
       if (products.length !== productIds.length) throw new Error('Every returned product must belong to the selected location.');
       const productById = new Map(products.map((product) => [String(product._id), product]));
       const invoiceItems = new Map((invoice?.items || []).map((item) => [String(item.productId), item]));
@@ -1869,7 +2080,7 @@ app.post('/api/sales-returns/:id/reverse', async (req, res) => {
       if (salesReturn.status === 'REVERSED') throw new Error('This sales return has already been reversed.');
       for (const item of salesReturn.items) {
         const updated = await Product.findOneAndUpdate(
-          { _id: item.productId, plant: salesReturn.location, openingStock: { $gte: Number(item.quantity) } },
+          { _id: item.productId, plant: productMasterLocation(salesReturn.location), openingStock: { $gte: Number(item.quantity) } },
           { $inc: { openingStock: -Number(item.quantity) } },
           { new: true, session: dbSession }
         );
