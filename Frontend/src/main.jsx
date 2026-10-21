@@ -50,6 +50,7 @@ import StockBalanceReportPage from "./StockBalanceReportPage.jsx";
 import StockMovementDetailsPage from "./StockMovementDetailsPage.jsx";
 import StockAdjustmentPage from "./StockAdjustmentPage.jsx";
 import StockAdjustmentReportPage from "./StockAdjustmentReportPage.jsx";
+import SupplierWiseStockMovementPage from "./SupplierWiseStockMovementPage.jsx";
 import GrnSeriesSettings from "./GrnSeriesSettings.jsx";
 import PrnSeriesSettings from "./PrnSeriesSettings.jsx";
 import SalesOrderSeriesSettings from "./SalesOrderSeriesSettings.jsx";
@@ -200,7 +201,7 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "Stock Adjustment Report", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "Stock Adjustment Report", "Supplier Wise Stock Movement", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
   LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
@@ -2621,7 +2622,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   // saved permission list. Keep it available to Super Admins without requiring
   // each existing account to be edited once.
   const canSeeSidebar = (permission) => {
-    if (permission === "Stock Adjustment Report")
+    if (["Stock Adjustment Report", "Supplier Wise Stock Movement"].includes(permission))
       return user.role === "SUPER_ADMIN" || (
         permissionConfigured && user.sidebarPermissions.includes(permission)
       );
@@ -2987,6 +2988,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               ? "Sales register report."
             : view === "Stock Balance Report"
               ? "Stock balance report."
+            : view === "Supplier Wise Stock Movement"
+              ? "Review supplier stock movement transactions."
             : view === "Stock Movement Details"
               ? "Review product stock movements."
             : view === "Stock Update"
@@ -3051,6 +3054,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       <SalesRegisterPage />
     ) : view === "Stock Balance Report" && (admin || canSeeSidebar("Stock Balance Report")) ? (
       <StockBalanceReportPage />
+    ) : view === "Supplier Wise Stock Movement" && (admin || canSeeSidebar("Supplier Wise Stock Movement")) ? (
+      <SupplierWiseStockMovementPage user={user} />
     ) : view === "Stock Movement Details" && (admin || canSeeSidebar("Stock Movement Details")) ? (
       <StockMovementDetailsPage user={user} />
     ) : view === "Locations" ? (
@@ -3417,7 +3422,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Adjustment Report"))) ||
+          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Adjustment Report") || canSeeSidebar("Supplier Wise Stock Movement"))) ||
             (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
@@ -3478,7 +3483,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                           </div>
                         )}
                       </>}
-                      {(admin || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Movement Details")) && <>
+                      {(admin || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Movement Details") || canSeeSidebar("Supplier Wise Stock Movement")) && <>
                         <button
                           type="button"
                           className="sidebar-menu-trigger sidebar-submenu-trigger"
@@ -3515,6 +3520,19 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                             >
                               <FiFileText />
                               <span>Stock Movement Details</span>
+                            </a>}
+                            {canSeeSidebar("Supplier Wise Stock Movement") && <a
+                              className={`sidebar-report-link${view === "Supplier Wise Stock Movement" ? " active" : ""}`}
+                              href="#"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setOrderToEdit(null);
+                                setV("Supplier Wise Stock Movement");
+                                setM(false);
+                              }}
+                            >
+                              <FiFileText />
+                              <span>Supplier Wise Stock Movement</span>
                             </a>}
                           </div>
                         )}

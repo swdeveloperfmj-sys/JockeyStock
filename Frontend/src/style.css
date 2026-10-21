@@ -1559,7 +1559,19 @@ header h1 {
 .bin-card-report .product-table thead th { border-top: 0; background: #edf3f8; color: #183a5a; }
 .bin-card-report .product-table td:nth-child(n+4), .bin-card-report .product-table th:nth-child(n+4) { text-align: right; }
 .bin-card-report tfoot th { border-top: 2px solid #2f75b5; background: color-mix(in srgb, #2f75b5 12%, var(--surface)); }
-@media (max-width: 1100px) { .bin-card-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) {
+  .bin-card-page .bin-card-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .bin-card-page .bin-card-filters > * {
+    min-width: 0;
+  }
+  .bin-card-page .bin-card-filters button {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+  }
+}
 @media print { .bin-card-report-viewer { position: absolute; inset: 0; padding: 0; background: #fff; } .bin-card-viewer-toolbar { display: none; } .bin-card-report { width: 100%; min-height: 0; border: 0; box-shadow: none; } }
 
 /* Crystal Reports-style Bin Card document viewer */
