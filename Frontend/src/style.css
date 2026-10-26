@@ -7535,6 +7535,82 @@ label {
   }
 }
 
+/* Stock Updates responsive desktop/tablet layout.
+   The generic product master uses a very wide table and a 500px card floor;
+   those values leave this screen clipped and mostly empty after resizing. */
+.stock-updates-history-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.stock-update-product-list {
+  min-width: 0;
+  min-height: 0;
+}
+
+.stock-update-product-list .product-table-wrap {
+  width: 100%;
+  height: clamp(320px, calc(100dvh - 300px), 680px);
+  max-width: 100%;
+}
+
+.stock-update-product-list .product-table {
+  width: 100%;
+  min-width: 900px;
+}
+
+.stock-update-product-list .product-table th,
+.stock-update-product-list .product-table td {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1500px) and (min-width: 761px) {
+  .stock-update-product-list .product-table th:nth-child(n + 9),
+  .stock-update-product-list .product-table td:nth-child(n + 9) {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) and (min-width: 761px) {
+  .stock-update-detail-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stock-update-detail-filters input:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .stock-update-product-list .product-table {
+    min-width: 700px;
+    table-layout: fixed;
+  }
+
+  .stock-update-product-list .product-table th:nth-child(7),
+  .stock-update-product-list .product-table td:nth-child(7) {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .stock-update-product-list .product-table-wrap {
+    height: auto;
+    max-height: none;
+  }
+
+  .stock-update-product-list .product-table {
+    min-width: 0;
+  }
+
+  .stock-update-product-list .product-table th,
+  .stock-update-product-list .product-table td {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
+
 /* Keep the GRN document as a real table when the browser's A4 print viewport
    also matches the mobile breakpoint above. This block must remain last. */
 @media print {
