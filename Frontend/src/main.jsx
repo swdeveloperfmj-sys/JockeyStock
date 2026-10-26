@@ -206,7 +206,10 @@ const ROLE_SIDEBAR_PERMISSIONS = {
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
   SALES_REP: ["Dashboard", "Create Order", "Sales"],
+  AUDIT: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment Report", "Supplier Wise Stock Movement", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
 };
+const normalizedRole = (role) => String(role || "").trim().toUpperCase().replaceAll(" ", "_");
+const isAuditRole = (role) => normalizedRole(role) === "AUDIT";
 const ALL_SIDEBAR_PERMISSIONS = [
   ...ROLE_SIDEBAR_PERMISSIONS.SUPER_ADMIN,
   ...ROLE_SIDEBAR_PERMISSIONS.LOCATION_MANAGER.filter(
@@ -218,7 +221,7 @@ const ALL_SIDEBAR_PERMISSIONS = [
       !ROLE_SIDEBAR_PERMISSIONS.LOCATION_MANAGER.includes(permission),
   ),
 ];
-const sidebarPermissionsForRole = (role) => ROLE_SIDEBAR_PERMISSIONS[role] || ROLE_SIDEBAR_PERMISSIONS.SALES_REP;
+const sidebarPermissionsForRole = (role) => ROLE_SIDEBAR_PERMISSIONS[normalizedRole(role)] || ROLE_SIDEBAR_PERMISSIONS.SALES_REP;
 const blank = {
   name: "",
   username: "",
@@ -2617,11 +2620,13 @@ function GrnProductLookup() {
   return open && <div className="modal-backdrop grn-lookup-backdrop" onClick={() => setOpen(false)}><section className="grn-lookup-modal" onClick={(event) => event.stopPropagation()}><div className="product-image-preview-header"><div><p className="eyebrow">PRODUCT MASTER</p><h2>Select product</h2><p>Search, then double-click an item to add it to the GRN.</p></div><button type="button" className="close-modal" onClick={() => setOpen(false)}><FiX /></button></div><input autoFocus type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search code, name, style, colour..." /><div className="product-table-wrap"><table className="product-table"><thead><tr><th>Product Code</th><th>Product Name</th><th>Style</th><th>Colour</th><th>Size</th><th>Stock</th></tr></thead><tbody>{visible.map((product) => <tr key={product._id} onDoubleClick={() => selectProduct(product)} title="Double-click to select"><td>{product.productCode || product.sku}</td><td>{product.productName || product.name}</td><td>{product.style || "-"}</td><td>{product.color || "-"}</td><td>{product.size || "-"}</td><td>{Number(product.openingStock || 0).toLocaleString()}</td></tr>)}</tbody></table></div></section></div>;
 }
 function Dashboard({ user, onLogout, theme, setTheme }) {
-  const permissionConfigured = Array.isArray(user.sidebarPermissions);
+  const audit = isAuditRole(user.role);
+  const permissionConfigured = !audit && Array.isArray(user.sidebarPermissions);
   // Sales Return was introduced after some Super Admin accounts already had a
   // saved permission list. Keep it available to Super Admins without requiring
   // each existing account to be edited once.
   const canSeeSidebar = (permission) => {
+    if (audit) return ROLE_SIDEBAR_PERMISSIONS.AUDIT.includes(permission);
     if (["Stock Adjustment Report", "Supplier Wise Stock Movement"].includes(permission))
       return user.role === "SUPER_ADMIN" || (
         permissionConfigured && user.sidebarPermissions.includes(permission)
@@ -2727,7 +2732,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     const timer = window.setTimeout(() => setToastNotification(null), 6000);
     return () => window.clearTimeout(timer);
   }, [toastNotification]);
-  const roleLinks = admin
+  const roleLinks = admin || audit
     ? [
         [FiCodesandbox, "Dashboard"],
         [FiBox, "Inventory"],
@@ -2798,7 +2803,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     };
   }, []);
   useEffect(() => {
-    if (!admin || view !== "Dashboard") return;
+    if (!(admin || audit) || view !== "Dashboard") return;
     let active = true;
     setDashboardError("");
     fetch(`${API_URL}/dashboard/summary`)
@@ -2811,7 +2816,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     return () => {
       active = false;
     };
-  }, [admin, view]);
+  }, [admin, audit, view]);
   const catalogProducts = locationManager
     ? salesProducts
     : salesProducts.filter((product) => Number(product.openingStock || 0) > 0);
@@ -2961,6 +2966,8 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         <p className="eyebrow">
           {admin
             ? "SUPER ADMIN"
+            : audit
+              ? "AUDIT"
             : locationManager
               ? "LOCATION MANAGER"
               : salesDepartment
@@ -3026,7 +3033,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       </div>
     </header>
   );
-  const displayedStats = admin
+  const displayedStats = admin || audit
     ? liveAdminStats
     : locationManager
       ? locationManagerStats
@@ -3034,9 +3041,9 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   const content =
     view === "Users" ? (
       <UsersPage />
-    ) : view === "Customers" && admin ? (
+    ) : view === "Customers" && (admin || audit) ? (
       <CustomersPage />
-    ) : view === "Stock Updates" && admin ? (
+    ) : view === "Stock Updates" && (admin || audit) ? (
       <StockUpdatesHistoryPage />
     ) : view === "Stock Adjustment" && (admin || canSeeSidebar("Stock Adjustment")) ? (
       <StockAdjustmentPage />
@@ -3099,7 +3106,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             </article>
           ))}
         </section>
-        {admin && dashboardError && (
+        {(admin || audit) && dashboardError && (
           <p className="dashboard-error">{dashboardError}</p>
         )}
         {admin && view === "Dashboard" && <>
@@ -5164,7 +5171,7 @@ function App() {
   return user ? (
     <>
       <Dashboard user={user} onLogout={logout} theme={theme} setTheme={setT} />
-      {user.role === "SUPER_ADMIN" && <ProductMaster open={inventory} />}{" "}
+      {(user.role === "SUPER_ADMIN" || isAuditRole(user.role)) && <ProductMaster open={inventory} readOnly={isAuditRole(user.role)} />}{" "}
       {inventory && (
         <ProductHeaderActions
           user={user}
