@@ -297,6 +297,16 @@ const requireSession = (req, res, next) => {
 app.use('/api', requireSession);
 
 const currentUser = async (req) => User.findById(req.session.userId);
+const isAudit = (user) => String(user?.role || '').trim().toUpperCase().replaceAll(' ', '_') === 'AUDIT';
+const hasFullReadAccess = (user) => user?.role === 'SUPER_ADMIN' || isAudit(user);
+
+// Audit accounts may inspect every area, but must never change operational data.
+app.use('/api', async (req, res, next) => {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const user = await currentUser(req);
+  if (isAudit(user)) return res.status(403).json({ message: 'Audit access is read-only.' });
+  next();
+});
 
 // An order belongs to the plant that supplies its products, not the sales
 // representative's profile location. Normalize old records from their items.
@@ -345,12 +355,12 @@ app.get('/api/orders', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   await migrateLegacyOrders();
-  const filter = user.role === 'SUPER_ADMIN'
+  const filter = hasFullReadAccess(user)
     ? {}
     : user.role === 'LOCATION_MANAGER'
       ? { location: user.location, status: { $in: ['PENDING', 'HELD'] } }
       : { salesRepId: user._id, status: { $in: ['PENDING', 'HELD'] } };
-  if (user.role === 'SUPER_ADMIN') {
+  if (hasFullReadAccess(user)) {
     const { startDate, endDate } = req.query;
     if (startDate || endDate) {
       filter.createdAt = {};
@@ -358,7 +368,7 @@ app.get('/api/orders', async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999+05:30`);
     }
   }
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200).lean();
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(hasFullReadAccess(user) ? 5000 : 200).lean();
   const missingDetailIds = [...new Set(orders.flatMap((order) => order.items.filter((item) => !item.color || !item.size || !item.style).map((item) => String(item.productId))))];
   if (missingDetailIds.length) {
     const products = await Product.find({ _id: { $in: missingDetailIds } }).select('_id style color size').lean();
@@ -373,7 +383,7 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/reports/sales-register', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
+  if (!hasFullReadAccess(user) && user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
   const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
   const { from, to } = req.query;
   if (from || to) {
@@ -398,7 +408,7 @@ app.get('/api/reports/sales-register', async (req, res) => {
 app.get('/api/reports/stock-balance', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view the stock balance report.' });
+  if (!hasFullReadAccess(user)) return res.status(403).json({ message: 'You are not allowed to view the stock balance report.' });
   const filter = {};
   const { from, to } = req.query;
   if (from || to) {
@@ -420,7 +430,7 @@ app.get('/api/reports/stock-balance', async (req, res) => {
 app.get('/api/reports/supplier-stock-movement', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Supplier Wise Stock Movement')) return res.status(403).json({ message: 'You are not allowed to view supplier stock movements.' });
+  if (!hasFullReadAccess(user) && !user.sidebarPermissions?.includes('Supplier Wise Stock Movement')) return res.status(403).json({ message: 'You are not allowed to view supplier stock movements.' });
 
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
   const pageSize = Math.min(200, Math.max(1, Number.parseInt(req.query.pageSize, 10) || 100));
@@ -489,7 +499,7 @@ app.get('/api/reports/supplier-stock-movement', async (req, res) => {
 app.get('/api/reports/supplier-stock-movement/pdf-data', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.includes('Supplier Wise Stock Movement')) return res.status(403).json({ message: 'You are not allowed to view supplier stock movements.' });
+  if (!hasFullReadAccess(user) && !user.sidebarPermissions?.includes('Supplier Wise Stock Movement')) return res.status(403).json({ message: 'You are not allowed to view supplier stock movements.' });
 
   const supplierCode = String(req.query.supplierCode || '').trim().toUpperCase();
   const location = user.role === 'LOCATION_MANAGER'
@@ -629,7 +639,7 @@ app.get('/api/reports/supplier-stock-movement/pdf-data', async (req, res) => {
 app.get('/api/reports/bin-card', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view stock movement details.' });
+  if (!hasFullReadAccess(user) && user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'You are not allowed to view stock movement details.' });
   const productCode = String(req.query.productCode || '').trim();
   const location = user.role === 'LOCATION_MANAGER' ? user.location : String(req.query.location || '').trim();
   if (!productCode || !location) return res.status(400).json({ message: 'Product code and location are required.' });
@@ -658,7 +668,7 @@ const stockBalancePivotValues = new Set(['stockBalance', 'costPrice', 'stockValu
 app.get('/api/reports/stock-balance/pivot-layouts', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view stock balance layouts.' });
+  if (!hasFullReadAccess(user)) return res.status(403).json({ message: 'You are not allowed to view stock balance layouts.' });
   res.json(await StockBalancePivotLayout.find({ userId: user._id }).sort({ updatedAt: -1 }).lean());
 });
 
@@ -685,7 +695,7 @@ app.post('/api/reports/stock-balance/pivot-layouts', async (req, res) => {
 app.get('/api/reports/sales-register/pivot-layouts', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
+  if (!hasFullReadAccess(user) && user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'You are not allowed to view sales reports.' });
   const layouts = await SalesPivotLayout.find({ userId: user._id }).sort({ updatedAt: -1 }).lean();
   res.json(layouts);
 });
@@ -1226,7 +1236,7 @@ const duplicateUserMessage = (error) => {
 
 app.get('/api/users', async (req, res) => {
   const actor = await currentUser(req);
-  if (actor?.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admin can manage users.' });
+  if (!hasFullReadAccess(actor)) return res.status(403).json({ message: 'You are not allowed to view users.' });
   const users = await User.find().sort({ createdAt: -1 });
   res.json(users.map(safeUser));
 });
@@ -1412,7 +1422,7 @@ app.post('/api/stock-adjustments', async (req, res) => {
 app.get('/api/stock-adjustments', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN' && !user.sidebarPermissions?.some((permission) => ['Stock Adjustment', 'Stock Adjustment Report'].includes(permission))) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
+  if (!hasFullReadAccess(user) && !user.sidebarPermissions?.some((permission) => ['Stock Adjustment', 'Stock Adjustment Report'].includes(permission))) return res.status(403).json({ message: 'You are not allowed to view stock adjustments.' });
   const filter = { transactionType: 'STOCK ADJUSTMENT' };
   if (req.query.from || req.query.to) { filter.createdAt = {}; if (req.query.from) filter.createdAt.$gte = new Date(`${req.query.from}T00:00:00.000+05:30`); if (req.query.to) filter.createdAt.$lte = new Date(`${req.query.to}T23:59:59.999+05:30`); }
   res.json(await StockUpdate.find(filter).sort({ createdAt: -1 }).limit(2000).lean());
@@ -1482,7 +1492,7 @@ app.post('/api/products/stock-import', async (req, res) => {
 app.get('/api/stock-updates', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can view stock update history.' });
+  if (!hasFullReadAccess(user)) return res.status(403).json({ message: 'You are not allowed to view stock update history.' });
   res.json(await StockUpdate.find().sort({ createdAt: -1 }).limit(500));
 });
 const formatGrnNumber = (value, counter = {}) => {
@@ -1598,7 +1608,7 @@ app.put('/api/customers/number-series', async (req, res) => {
 app.get('/api/customers', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (!['SUPER_ADMIN', 'SALES_REP', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view customers.' });
+  if (!hasFullReadAccess(user) && !['SALES_REP', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view customers.' });
   res.json(await Customer.find().sort({ createdAt: -1 }).limit(2000));
 });
 app.post('/api/customers', async (req, res) => {
@@ -1809,7 +1819,7 @@ app.put('/api/prns/number-series', async (req, res) => {
 app.get('/api/grns', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view GRN reports.' });
+  if (!hasFullReadAccess(user) && user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'You are not allowed to view GRN reports.' });
 
   const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
   const { from, to } = req.query;
@@ -1900,7 +1910,7 @@ app.get('/api/prns/next-number', async (req, res) => {
 app.get('/api/prns', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (!['SUPER_ADMIN', 'LOCATION_MANAGER'].includes(user.role)) return res.status(403).json({ message: 'You are not allowed to view PRNs.' });
+  if (!hasFullReadAccess(user) && user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'You are not allowed to view PRNs.' });
   const filter = user.role === 'LOCATION_MANAGER' ? { location: user.location } : {};
   res.json(await PurchaseReturnNote.find(filter).sort({ prnDate: -1, createdAt: -1 }).lean());
 });

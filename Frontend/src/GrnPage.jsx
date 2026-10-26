@@ -11,6 +11,7 @@ const getCurrentLocalDate = () => {
     .toISOString()
     .slice(0, 10);
 };
+
 const getGrnDraft = () => {
   try {
     return JSON.parse(sessionStorage.getItem(GRN_DRAFT_KEY) || "{}");
@@ -33,8 +34,8 @@ export default function GrnPageNew({ user }) {
     [grnNumber, setGrnNumber] = useState(""),
     [items, setItems] = useState(() => savedDraft.items || []);
   const [entry, setEntry] = useState(
-      savedDraft.entry || { code: "", quantity: "" },
-    ),
+    savedDraft.entry || { code: "", quantity: "" },
+  ),
     [lookupOpen, setLookupOpen] = useState(false),
     [lookupSearch, setLookupSearch] = useState("");
   const [error, setError] = useState(""),
@@ -100,21 +101,21 @@ export default function GrnPageNew({ user }) {
     setItems((current) =>
       current.some((item) => item.productId === selectedProduct._id)
         ? current.map((item) =>
-            item.productId === selectedProduct._id
-              ? { ...item, quantity: item.quantity + quantity }
-              : item,
-          )
+          item.productId === selectedProduct._id
+            ? { ...item, quantity: item.quantity + quantity }
+            : item,
+        )
         : [
-            ...current,
-            {
-              productId: selectedProduct._id,
-              productCode: selectedProduct.productCode,
-              productName: selectedProduct.productName,
-              quantity,
-              costPrice: Number(selectedProduct.costPrice || 0),
-              sellingPrice: Number(selectedProduct.sellingPrice || 0),
-            },
-          ],
+          ...current,
+          {
+            productId: selectedProduct._id,
+            productCode: selectedProduct.productCode,
+            productName: selectedProduct.productName,
+            quantity,
+            costPrice: Number(selectedProduct.costPrice || 0),
+            sellingPrice: Number(selectedProduct.sellingPrice || 0),
+          },
+        ],
     );
     setEntry({ code: "", quantity: "" });
     setError("");
