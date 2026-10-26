@@ -201,12 +201,11 @@ function Login({ onLogin, theme, setTheme }) {
   );
 }
 const ROLE_SIDEBAR_PERMISSIONS = {
-  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "Stock Adjustment Report", "Supplier Wise Stock Movement", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
-  LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Sales Register", "GRN Report"],
+  SUPER_ADMIN: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment", "Stock Adjustment Report", "Supplier Wise Stock Movement", "GRN", "PRN", "Sales Return", "Sales", "Customers", "Users", "Locations", "Roles", "Report", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
+  LOCATION_MANAGER: ["Dashboard", "Stock Update", "GRN", "PRN", "Sales Return", "Create Order", "Pending Orders", "Shipment", "Report", "Sales Register", "GRN Report"],
   "SALES DEP": ["Shipment"],
   SALES_DEP: ["Shipment"],
   SALES_REP: ["Dashboard", "Create Order", "Sales"],
-  AUDIT: ["Dashboard", "Inventory", "Stock Updates", "Stock Adjustment Report", "Supplier Wise Stock Movement", "Sales", "Customers", "Users", "Locations", "Roles", "Sales Register", "GRN Report", "Stock Balance Report", "Stock Movement Details"],
 };
 const normalizedRole = (role) => String(role || "").trim().toUpperCase().replaceAll(" ", "_");
 const isAuditRole = (role) => normalizedRole(role) === "AUDIT";
@@ -221,7 +220,7 @@ const ALL_SIDEBAR_PERMISSIONS = [
       !ROLE_SIDEBAR_PERMISSIONS.LOCATION_MANAGER.includes(permission),
   ),
 ];
-const sidebarPermissionsForRole = (role) => ROLE_SIDEBAR_PERMISSIONS[normalizedRole(role)] || ROLE_SIDEBAR_PERMISSIONS.SALES_REP;
+const sidebarPermissionsForRole = (role) => ROLE_SIDEBAR_PERMISSIONS[normalizedRole(role)] || [];
 const blank = {
   name: "",
   username: "",
@@ -2621,12 +2620,11 @@ function GrnProductLookup() {
 }
 function Dashboard({ user, onLogout, theme, setTheme }) {
   const audit = isAuditRole(user.role);
-  const permissionConfigured = !audit && Array.isArray(user.sidebarPermissions);
+  const permissionConfigured = Array.isArray(user.sidebarPermissions);
   // Sales Return was introduced after some Super Admin accounts already had a
   // saved permission list. Keep it available to Super Admins without requiring
   // each existing account to be edited once.
   const canSeeSidebar = (permission) => {
-    if (audit) return ROLE_SIDEBAR_PERMISSIONS.AUDIT.includes(permission);
     if (["Stock Adjustment Report", "Supplier Wise Stock Movement"].includes(permission))
       return user.role === "SUPER_ADMIN" || (
         permissionConfigured && user.sidebarPermissions.includes(permission)
@@ -2732,7 +2730,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     const timer = window.setTimeout(() => setToastNotification(null), 6000);
     return () => window.clearTimeout(timer);
   }, [toastNotification]);
-  const roleLinks = admin || audit
+  const roleLinks = admin
     ? [
         [FiCodesandbox, "Dashboard"],
         [FiBox, "Inventory"],
@@ -2803,7 +2801,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     };
   }, []);
   useEffect(() => {
-    if (!(admin || audit) || view !== "Dashboard") return;
+    if (!admin || view !== "Dashboard") return;
     let active = true;
     setDashboardError("");
     fetch(`${API_URL}/dashboard/summary`)
@@ -2816,7 +2814,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     return () => {
       active = false;
     };
-  }, [admin, audit, view]);
+  }, [admin, view]);
   const catalogProducts = locationManager
     ? salesProducts
     : salesProducts.filter((product) => Number(product.openingStock || 0) > 0);
@@ -3033,7 +3031,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
       </div>
     </header>
   );
-  const displayedStats = admin || audit
+  const displayedStats = admin
     ? liveAdminStats
     : locationManager
       ? locationManagerStats
@@ -3041,19 +3039,19 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
   const content =
     view === "Users" ? (
       <UsersPage />
-    ) : view === "Customers" && (admin || audit) ? (
+    ) : view === "Customers" && (admin || canSeeSidebar("Customers")) ? (
       <CustomersPage />
-    ) : view === "Stock Updates" && (admin || audit) ? (
+    ) : view === "Stock Updates" && (admin || canSeeSidebar("Stock Updates")) ? (
       <StockUpdatesHistoryPage />
     ) : view === "Stock Adjustment" && (admin || canSeeSidebar("Stock Adjustment")) ? (
       <StockAdjustmentPage />
     ) : view === "Stock Adjustment Report" && (admin || canSeeSidebar("Stock Adjustment Report")) ? (
       <StockAdjustmentReportPage />
-    ) : view === "GRN" && (admin || locationManager) ? (
+    ) : view === "GRN" && (admin || locationManager || canSeeSidebar("GRN")) ? (
       <GrnPageNew user={user} />
-    ) : view === "PRN" && (admin || locationManager) ? (
+    ) : view === "PRN" && (admin || locationManager || canSeeSidebar("PRN")) ? (
       <PrnPage user={user} />
-    ) : view === "Sales Return" && (admin || locationManager) ? (
+    ) : view === "Sales Return" && (admin || locationManager || canSeeSidebar("Sales Return")) ? (
       <SalesReturnPage user={user} />
     ) : view === "GRN Report" && (admin || locationManager || canSeeSidebar("GRN Report")) ? (
       <GrnReportPage user={user} />
@@ -3106,7 +3104,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
             </article>
           ))}
         </section>
-        {(admin || audit) && dashboardError && (
+        {admin && dashboardError && (
           <p className="dashboard-error">{dashboardError}</p>
         )}
         {admin && view === "Dashboard" && <>
@@ -3429,7 +3427,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
               <span>{l}</span>
             </a>
           ))}
-          {(admin || (permissionConfigured && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Adjustment Report") || canSeeSidebar("Supplier Wise Stock Movement"))) ||
+          {(admin || (permissionConfigured && canSeeSidebar("Report") && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Adjustment Report") || canSeeSidebar("Supplier Wise Stock Movement"))) ||
             (!permissionConfigured && (admin || locationManager))) && (
             <div className="sidebar-menu-group">
               <button
@@ -5171,7 +5169,7 @@ function App() {
   return user ? (
     <>
       <Dashboard user={user} onLogout={logout} theme={theme} setTheme={setT} />
-      {(user.role === "SUPER_ADMIN" || isAuditRole(user.role)) && <ProductMaster open={inventory} readOnly={isAuditRole(user.role)} />}{" "}
+      {(user.role === "SUPER_ADMIN" || user.sidebarPermissions?.includes("Inventory")) && <ProductMaster open={inventory} />}{" "}
       {inventory && (
         <ProductHeaderActions
           user={user}
