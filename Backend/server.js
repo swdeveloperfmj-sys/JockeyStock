@@ -1651,7 +1651,9 @@ app.put('/api/stock-adjustments/number-series', async (req, res) => {
 app.get('/api/customers/number-series', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
-  if (user.role !== 'SUPER_ADMIN') return res.status(403).json({ message: 'Only Super Admins can configure the customer number series.' });
+  if (!['SALES_REP', 'LOCATION_MANAGER'].includes(user.role) && !hasSidebarAccess(user, 'Customers')) {
+    return res.status(403).json({ message: 'You are not allowed to view customers.' });
+  }
   const counter = await Counter.findOne({ key: 'CUSTOMER' }).lean();
   const settings = counter || { value: 0, prefix: 'CUS-', padding: 6 };
   res.json({
