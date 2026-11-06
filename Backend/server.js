@@ -1075,6 +1075,9 @@ app.post('/api/orders', async (req, res) => {
       }));
       const orderPlants = [...new Set(requestedItems.map((item) => item.plant))];
       if (orderPlants.length !== 1) throw new Error('Products from different factory locations cannot be added to the same order.');
+      if (user.role === 'SALES_REP' && orderPlants[0] !== productMasterLocation(user.location)) {
+        throw new Error('Products must belong to your assigned location.');
+      }
       for (const item of requestedItems) {
         const result = await Product.updateOne(
           { _id: item.productId, openingStock: { $gte: item.quantity } },
@@ -1104,7 +1107,10 @@ app.post('/api/orders', async (req, res) => {
         customerPaymentTerm: customer.paymentTerm,
         salesRepId: user._id,
         salesRepName: user.name,
-        location: user.role === 'LOCATION_MANAGER' ? user.location : orderPlants[0],
+        // Orders must use the user's operational location so the assigned
+        // Location Manager can find them. Inventory may be shared across
+        // legacy locations (for example FMJ New Plant maps to Head Office).
+        location: user.location,
         items: requestedItems,
         totalQuantity,
         totalAmount
