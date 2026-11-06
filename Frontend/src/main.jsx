@@ -1613,7 +1613,7 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
     </section>
   );
 }
-function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = false }) {
+function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, canDownloadReport = false, canManageOrders = false }) {
   const [orders, setOrders] = useState([]),
     [error, setError] = useState(""),
     [startDate, setStartDate] = useState(""),
@@ -1636,7 +1636,9 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
   }, [refreshKey, startDate, endDate]);
   const filteredOrders = orders.filter((order) => {
     const orderDate = new Date(order.createdAt);
-    const localDate = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, "0")}-${String(orderDate.getDate()).padStart(2, "0")}`;
+    const dateParts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(orderDate);
+    const datePart = (type) => dateParts.find((part) => part.type === type)?.value || "";
+    const localDate = `${datePart("year")}-${datePart("month")}-${datePart("day")}`;
     return (
       (!startDate || localDate >= startDate) &&
       (!endDate || localDate <= endDate)
@@ -1709,7 +1711,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
             Clear filters
           </button>
         )}
-        {isAdmin && <button type="button" className="download-sales-report" disabled={!filteredOrders.length} onClick={downloadReport}><FiDownload /> Download report</button>}
+        {canDownloadReport && <button type="button" className="download-sales-report" disabled={!filteredOrders.length} onClick={downloadReport}><FiDownload /> Download report</button>}
       </div>
       {error ? (
         <p className="dashboard-error">{error}</p>
@@ -1745,7 +1747,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                     minimumFractionDigits: 2,
                   })}
                 </strong>
-                {!isAdmin && order.status === "PENDING" && isToday(order.createdAt) && (
+                {canManageOrders && order.status === "PENDING" && isToday(order.createdAt) && (
                   <div className="sales-order-actions">
                     <button type="button" className="edit-sales-order" onClick={(event) => { event.stopPropagation(); onEditOrder(order); }} onKeyDown={(event) => event.stopPropagation()}>Edit order</button>
                     <button type="button" className="cancel-sales-order" onClick={(event) => { event.stopPropagation(); setReverseTarget(order); }} onKeyDown={(event) => event.stopPropagation()}>Cancel order</button>
@@ -1841,7 +1843,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                 })}
               </strong>
             </div>
-            {!isAdmin && isToday(selectedOrder.createdAt) && (
+            {canManageOrders && isToday(selectedOrder.createdAt) && (
               <button type="button" className="reverse-order-button" onClick={() => setReverseTarget(selectedOrder)}>
                 Cancel today’s order
               </button>
@@ -3077,7 +3079,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
         }}
       />
     ) : view === "Sales" && !locationManager ? (
-      <SalesHistoryPage refreshKey={orderRefreshKey} isAdmin={admin} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
+      <SalesHistoryPage refreshKey={orderRefreshKey} canDownloadReport={admin || canSeeSidebar("Sales")} canManageOrders={user.role === "SALES_REP"} onOrderChanged={() => setOrderRefreshKey((key) => key + 1)} onEditOrder={(order) => { setOrderToEdit(order); setV("Create Order"); }} />
     ) : (
       <>
         <section className="stats">
