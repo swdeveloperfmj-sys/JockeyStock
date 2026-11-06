@@ -27,6 +27,7 @@ const orderSchema = new mongoose.Schema({
   salesRepId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   salesRepName: { type: String, required: true, trim: true },
   location: { type: String, required: true, trim: true },
+  splitFromOrderNumber: { type: String, trim: true },
   items: { type: [orderItemSchema], validate: [(items) => items.length > 0, 'At least one item is required.'] },
   totalQuantity: { type: Number, required: true, min: 1 },
   totalAmount: { type: Number, required: true, min: 0 },

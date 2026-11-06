@@ -1733,6 +1733,7 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = f
                   {order.customerPhone ? ` · ${order.customerPhone}` : ""}
                 </span>
                 <small>{new Date(order.createdAt).toLocaleString()}</small>
+                {order.splitFromOrderNumber && <small>Held quantity split from {order.splitFromOrderNumber}</small>}
                 <b className={`sales-order-status ${order.status === "HELD" ? "is-held" : ""}`}>{order.status === "HELD" ? "On hold" : order.status}</b>
                 {order.status === "HELD" && <small className="sales-order-hold-reason">{order.hold?.items?.map((item) => item.productCode).join(", ") || order.hold?.productCode}: {order.hold?.reason}</small>}
               </div>
@@ -2090,21 +2091,22 @@ function ReadyToShipConfirm({ order, busy, onClose, onConfirm }) {
   </div>;
 }
 function OrderHoldModal({ order, busy, onClose, onConfirm }) {
-  const [productIds, setProductIds] = useState(order.items[0]?.productId ? [String(order.items[0].productId)] : []);
+  const [quantities, setQuantities] = useState({});
   const [reason, setReason] = useState("");
-  const toggleProduct = (productId) => setProductIds((items) => items.includes(String(productId)) ? items.filter((id) => id !== String(productId)) : [...items, String(productId)]);
+  const itemsToHold = order.items.map((item) => ({ productId: String(item.productId), quantity: Number(quantities[String(item.productId)] || 0) })).filter((item) => item.quantity > 0);
+  const totalUnitsToHold = itemsToHold.reduce((sum, item) => sum + item.quantity, 0);
   const submit = (event) => {
     event.preventDefault();
-    onConfirm({ productIds, reason });
+    onConfirm({ items: itemsToHold, reason });
   };
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <form className="confirm-modal order-hold-modal" role="dialog" aria-modal="true" aria-labelledby="order-hold-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
       <p className="eyebrow">PLACE ORDER ON HOLD</p>
       <h2 id="order-hold-title">Hold {order.orderNumber}</h2>
-      <p>The stock will remain reserved until this order is resumed or cancelled.</p>
-      <fieldset className="hold-item-picker"><legend>Affected items <span>{productIds.length} selected</span></legend>{order.items.map((item) => { const id = String(item.productId); return <label className={productIds.includes(id) ? "is-selected" : ""} key={id}><input type="checkbox" checked={productIds.includes(id)} onChange={() => toggleProduct(id)} /><span><strong>{item.productName}</strong><small>{item.productCode} · {[item.color, item.size].filter(Boolean).join(" · ") || "Colour/size not recorded"} · {item.quantity} pcs</small></span></label>; })}</fieldset>
+      <p>Enter the quantity to hold for each item. Any remaining quantity stays ready for shipment.</p>
+      <fieldset className="hold-item-picker"><legend>Hold quantities <span>{totalUnitsToHold} pieces selected</span></legend>{order.items.map((item) => { const id = String(item.productId); const quantity = Number(quantities[id] || 0); return <label className={quantity > 0 ? "is-selected" : ""} key={id}><span className="hold-item-description"><strong>{item.productName}</strong><small>{item.productCode} · {[item.color, item.size].filter(Boolean).join(" · ") || "Colour/size not recorded"} · {item.quantity} ordered</small></span><span className="hold-item-quantity"><small>Hold qty</small><input type="number" min="0" max={item.quantity} step="1" value={quantities[id] ?? ""} placeholder="0" onChange={(event) => { const value = event.target.value === "" ? "" : Math.min(Number(item.quantity), Math.max(0, Math.trunc(Number(event.target.value) || 0))); setQuantities((current) => ({ ...current, [id]: value })); }} aria-label={`Quantity to hold for ${item.productName}`} /></span></label>; })}</fieldset>
       <label>Reason<textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} minLength="3" maxLength="500" rows="4" placeholder="e.g. Damaged items found during packing" required /></label>
-      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Keep pending</button><button type="submit" disabled={busy || !productIds.length || reason.trim().length < 3}>{busy ? "Placing on hold..." : "Place on hold"}</button></div>
+      <div className="modal-actions"><button type="button" className="cancel-button" disabled={busy} onClick={onClose}>Keep pending</button><button type="submit" disabled={busy || !itemsToHold.length || reason.trim().length < 3}>{busy ? "Placing on hold..." : "Place on hold"}</button></div>
     </form>
   </div>;
 }
@@ -2160,14 +2162,14 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
       setShippingId("");
     }
   };
-  const holdOrder = async ({ productIds, reason }) => {
+  const holdOrder = async ({ items, reason }) => {
     if (!holdTarget) return;
     setHoldingId(holdTarget._id); setError("");
     try {
-      const response = await fetch(`${API_URL}/orders/${holdTarget._id}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productIds, reason }) });
+      const response = await fetch(`${API_URL}/orders/${holdTarget._id}/hold`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, reason }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
-      setOrders((items) => items.map((order) => order._id === data._id ? data : order));
+      setOrders((current) => [...current.map((order) => order._id === data.order._id ? data.order : order), ...(data.heldOrder ? [data.heldOrder] : [])]);
       setHoldTarget(null);
       onOrderChanged();
     } catch (requestError) { setError(requestError.message); } finally { setHoldingId(""); }
