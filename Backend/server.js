@@ -368,12 +368,17 @@ app.get('/api/orders', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
   await migrateLegacyOrders();
-  const filter = user.role === 'SUPER_ADMIN'
+  const canReviewAllSales = user.role === 'SUPER_ADMIN'
+    || (user.role !== 'SALES_REP' && user.role !== 'LOCATION_MANAGER' && hasSidebarAccess(user, 'Sales'));
+  if (user.role !== 'SUPER_ADMIN' && user.role !== 'LOCATION_MANAGER' && user.role !== 'SALES_REP' && !canReviewAllSales) {
+    return res.status(403).json({ message: 'You are not allowed to view sales history.' });
+  }
+  const filter = canReviewAllSales
     ? {}
     : user.role === 'LOCATION_MANAGER'
       ? { location: user.location, status: { $in: ['PENDING', 'HELD'] } }
       : { salesRepId: user._id };
-  if (user.role === 'SUPER_ADMIN') {
+  if (canReviewAllSales || user.role === 'SALES_REP') {
     const { startDate, endDate } = req.query;
     if (startDate || endDate) {
       filter.createdAt = {};
