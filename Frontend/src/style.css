@@ -266,6 +266,12 @@ nav a svg {
   font-size: 1.05rem;
   flex: 0 0 auto;
 }
+.pending-order-sidebar-alert { flex: 0 0 auto; width: 9px; height: 9px; margin-left: auto; border-radius: 50%; background: #f04452; box-shadow: 0 0 0 0 rgba(240, 68, 82, .55); animation: pending-order-dot-pulse 1.25s ease-in-out infinite; }
+@keyframes pending-order-dot-pulse {
+  0%, 100% { background: #f04452; box-shadow: 0 0 0 0 rgba(240, 68, 82, .55); transform: scale(.92); }
+  50% { background: #32c779; box-shadow: 0 0 0 6px rgba(50, 199, 121, 0); transform: scale(1.08); }
+}
+@media (prefers-reduced-motion: reduce) { .pending-order-sidebar-alert { animation: none; background: #32c779; box-shadow: 0 0 0 3px rgba(50, 199, 121, .18); } }
 nav a.active {
   background: var(--red);
   color: #fff;
