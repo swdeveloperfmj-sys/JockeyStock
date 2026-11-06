@@ -372,7 +372,7 @@ app.get('/api/orders', async (req, res) => {
     ? {}
     : user.role === 'LOCATION_MANAGER'
       ? { location: user.location, status: { $in: ['PENDING', 'HELD'] } }
-      : { salesRepId: user._id, status: { $in: ['PENDING', 'HELD'] } };
+      : { salesRepId: user._id };
   if (user.role === 'SUPER_ADMIN') {
     const { startDate, endDate } = req.query;
     if (startDate || endDate) {
@@ -381,7 +381,7 @@ app.get('/api/orders', async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999+05:30`);
     }
   }
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200).lean();
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'LOCATION_MANAGER' ? 200 : 5000).lean();
   const missingDetailIds = [...new Set(orders.flatMap((order) => order.items.filter((item) => !item.color || !item.size || !item.style).map((item) => String(item.productId))))];
   if (missingDetailIds.length) {
     const products = await Product.find({ _id: { $in: missingDetailIds } }).select('_id style color size').lean();

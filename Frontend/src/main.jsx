@@ -1614,14 +1614,10 @@ function SalesOrderPage({ onOrderCreated, editingOrder }) {
   );
 }
 function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, isAdmin = false }) {
-  const todayDate = () => {
-    const today = new Date();
-    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  };
   const [orders, setOrders] = useState([]),
     [error, setError] = useState(""),
-    [startDate, setStartDate] = useState(() => isAdmin ? "" : todayDate()),
-    [endDate, setEndDate] = useState(() => isAdmin ? "" : todayDate()),
+    [startDate, setStartDate] = useState(""),
+    [endDate, setEndDate] = useState(""),
     [selectedOrder, setSelectedOrder] = useState(null),
     [reverseTarget, setReverseTarget] = useState(null),
     [reversing, setReversing] = useState(false);
@@ -2113,7 +2109,7 @@ function OrderHoldModal({ order, busy, onClose, onConfirm }) {
   </div>;
 }
 function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
-  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false), [readyTarget, setReadyTarget] = useState(null), [shippingId, setShippingId] = useState(""), [holdTarget, setHoldTarget] = useState(null), [holdingId, setHoldingId] = useState(""), [resumingId, setResumingId] = useState("");
+  const [orders, setOrders] = useState([]), [error, setError] = useState(""), [cancelTarget, setCancelTarget] = useState(null), [cancelling, setCancelling] = useState(false), [readyTarget, setReadyTarget] = useState(null), [shippingId, setShippingId] = useState(""), [holdTarget, setHoldTarget] = useState(null), [holdingId, setHoldingId] = useState(""), [resumingId, setResumingId] = useState(""), [selectedOrder, setSelectedOrder] = useState(null);
   useEffect(() => {
     let active = true;
     const loadOrders = () => fetch(`${API_URL}/orders`)
@@ -2193,42 +2189,38 @@ function PendingOrdersPage({ refreshKey, onOrderChanged, onReadyToShip }) {
       {error && <p className="dashboard-error">{error}</p>}
       <p className="pending-orders-count">{orders.filter((order) => order.status === "PENDING").length} pending · {orders.filter((order) => order.status === "HELD").length} on hold</p>
       {orders.length ? <div className="pending-orders-list">
-        {orders.map((order) => <article className={`pending-order-card ${order.status === "HELD" ? "is-held" : ""}`} key={order._id}>
-          <header className="pending-order-heading">
-            <div><span className="pending-order-number">{order.orderNumber}</span><h2>{order.customerName}</h2><small>Placed {new Date(order.createdAt).toLocaleString()}</small></div>
-            <b><i />{order.status === "HELD" ? "On hold" : "Pending review"}</b>
-          </header>
-          <div className="pending-order-body">
-            <div className="pending-order-meta">
-              <span><small>Sales representative</small>{order.salesRepName}</span>
-              <span><small>Customer phone</small>{order.customerPhone || "Not provided"}</span>
-              <span className="pending-order-address"><small><FiMapPin aria-hidden="true" /> Delivery address</small>{order.customerAddress}</span>
-              {order.status === "HELD" && <span className="pending-order-hold-note"><small>Hold reason · {order.hold?.items?.map((item) => item.productCode).join(", ") || order.hold?.productCode}</small>{order.hold?.reason}</span>}
+        {orders.map((order) => <article className={`shipment-card location-shipment-card pending-order-summary ${order.status === "HELD" ? "is-held" : ""}`} key={order._id} onDoubleClick={() => setSelectedOrder(order)} title="Double-click to view order items">
+          <div className="shipment-card-main">
+            <span>{order.orderNumber}</span>
+            <h2>{order.customerName}</h2>
+            <small>{order.customerPhone || "No phone number"} · Sales rep: {order.salesRepName}</small>
+            <p><FiMapPin aria-hidden="true" />{order.customerAddress}</p>
+          </div>
+          <div className="shipment-total">
+            <small>{order.totalQuantity} pieces · Order total</small>
+            <strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong>
+            <b className={order.status === "HELD" ? "shipment-waiting-status" : "pending-order-status"}><i />{order.status === "HELD" ? "On hold" : "Pending review"}</b>
+          </div>
+          <div className="shipment-invoice pending-order-card-footer" onDoubleClick={(event) => event.stopPropagation()}>
+            <small className="pending-order-open-hint">{order.items.length} {order.items.length === 1 ? "product" : "products"} · Placed {new Date(order.createdAt).toLocaleString()}{order.status === "HELD" && order.hold?.reason ? ` · ${order.hold.reason}` : ""}</small>
+            <div className="pending-order-actions">
+              <button type="button" className="cancel-pending-order" disabled={actionBusy} onClick={() => setCancelTarget(order)}>Cancel order</button>
+              {order.status === "HELD" ? <button type="button" className="resume-held-order" disabled={actionBusy} onClick={() => resumeOrder(order)}>{resumingId === order._id ? "Resuming..." : "Resume order"}</button> : <><button type="button" className="hold-pending-order" disabled={actionBusy} onClick={() => setHoldTarget(order)}>Put on hold</button><button type="button" className="ready-to-ship-order" disabled={actionBusy} onClick={() => setReadyTarget(order)}><FiTruck aria-hidden="true" />Ready to ship</button></>}
             </div>
-            <div className="pending-order-items">
-              <div className="pending-order-items-title"><span>Order items</span><small>{order.items.length} {order.items.length === 1 ? "product" : "products"}</small></div>
-              {order.items.map((item) => <div className="pending-order-item" key={item.productId}><span>{item.productName}<small>{item.productCode}{[item.color, item.size].filter(Boolean).length ? ` · ${[item.color, item.size].filter(Boolean).join(" · ")}` : ""}</small></span><b>{item.quantity} <small>pcs</small></b></div>)}
-            </div>
-            <footer className="pending-order-footer">
-              <div className="pending-order-total"><span>Total quantity <b>{order.totalQuantity} pieces</b></span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-              <div className="pending-order-actions">
-                <button type="button" className="cancel-pending-order" disabled={actionBusy} onClick={() => setCancelTarget(order)}>Cancel order</button>
-                {order.status === "HELD" ? <button type="button" className="resume-held-order" disabled={actionBusy} onClick={() => resumeOrder(order)}>{resumingId === order._id ? "Resuming..." : "Resume order"}</button> : <><button type="button" className="hold-pending-order" disabled={actionBusy} onClick={() => setHoldTarget(order)}>Put on hold</button><button type="button" className="ready-to-ship-order" disabled={actionBusy} onClick={() => setReadyTarget(order)}><FiTruck aria-hidden="true" />Ready to ship</button></>}
-              </div>
-            </footer>
           </div>
         </article>)}
       </div> : <p className="empty-dashboard-state">No pending orders for this location.</p>}
       {cancelTarget && <OrderCancellationConfirm order={cancelTarget} actionLabel="Cancel order" busy={cancelling} onClose={() => setCancelTarget(null)} onConfirm={cancelOrder} />}
       {holdTarget && <OrderHoldModal order={holdTarget} busy={holdingId === holdTarget._id} onClose={() => setHoldTarget(null)} onConfirm={holdOrder} />}
       {readyTarget && <ReadyToShipConfirm order={readyTarget} busy={shippingId === readyTarget._id} onClose={() => setReadyTarget(null)} onConfirm={() => markReadyToShip(readyTarget)} />}
+      {selectedOrder && <ShipmentItemsModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />}
     </section>
   );
 }
 function ShipmentItemsModal({ order, onClose }) {
   return <div className="modal-backdrop" onMouseDown={onClose}>
     <section className="shipment-items-modal" role="dialog" aria-modal="true" aria-labelledby="shipment-items-title" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="modal-title"><div><p className="eyebrow">SHIPMENT ORDER ITEMS</p><h2 id="shipment-items-title">{order.orderNumber}</h2><p>{order.customerName} · {order.totalQuantity} pieces</p></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close"><FiX /></button></div>
+      <div className="modal-title"><div><p className="eyebrow">ORDER ITEMS</p><h2 id="shipment-items-title">{order.orderNumber}</h2><p>{order.customerName} · {order.totalQuantity} pieces</p></div><button type="button" className="close-modal" onClick={onClose} aria-label="Close"><FiX /></button></div>
       <div className="shipment-items-table-wrap"><table className="shipment-items-table"><thead><tr><th>Product</th><th>Code / variant</th><th>Qty.</th><th>Unit price</th><th>Total</th></tr></thead><tbody>{order.items.map((item) => <tr key={item.productId}><td>{item.productName}</td><td>{item.productCode}{[item.color, item.size].filter(Boolean).length ? <small>{[item.color, item.size].filter(Boolean).join(" · ")}</small> : null}</td><td>{item.quantity}</td><td>LKR {Number(item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td><td>LKR {Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>)}</tbody></table></div>
       <div className="shipment-items-modal-total"><span>Order total</span><strong>LKR {Number(order.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
     </section>

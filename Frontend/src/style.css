@@ -4059,6 +4059,19 @@ label {
 .shipment-status-divider { width: 100%; height: 1px; background: linear-gradient(90deg, transparent, var(--border) 8%, var(--border) 92%, transparent); }
 .shipment-group-empty { margin: 0; padding: 20px; border: 1px dashed var(--border); border-radius: 12px; color: var(--muted); background: color-mix(in srgb, var(--surface) 82%, transparent); font-size: .8rem; text-align: center; }
 .shipment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.pending-orders-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pending-order-summary { min-height: 205px; border-color: rgba(238, 151, 47, .55); background: linear-gradient(135deg, rgba(238, 151, 47, .08), var(--surface) 72%); }
+.pending-order-summary::before { background: #d88927; }
+.pending-order-summary:hover { border-color: rgba(238, 151, 47, .8); }
+.pending-order-summary.is-held { border-color: rgba(238, 151, 47, .8); }
+.pending-order-summary .shipment-card-main > span { color: var(--red); }
+.pending-order-summary .pending-order-status { background: rgba(255, 107, 53, .13); color: var(--red); }
+.pending-order-summary .pending-order-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pending-order-card-footer { align-items: center; }
+.pending-order-open-hint { color: var(--muted) !important; font-size: .68rem !important; }
+.pending-order-card-footer .pending-order-actions { justify-content: flex-end; }
+.pending-order-card-footer .pending-order-actions button { flex: 0 1 auto; min-height: 36px; padding: 7px 10px; font-size: .7rem; }
+.pending-order-summary .resume-held-order { width: auto; }
 .shipment-card { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; min-height: 205px; padding: 22px; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: linear-gradient(135deg, var(--surface) 0%, var(--surface) 72%, rgba(45, 157, 120, .08) 100%); box-shadow: 0 10px 28px rgba(10, 25, 39, .06); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .shipment-card::before { position: absolute; inset: 0 auto 0 0; width: 4px; background: #2d9d78; content: ""; }
 .shipment-card:hover { transform: translateY(-3px); border-color: rgba(45, 157, 120, .6); box-shadow: 0 16px 32px rgba(10, 25, 39, .1); }
