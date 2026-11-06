@@ -372,7 +372,7 @@ app.get('/api/orders', async (req, res) => {
     ? {}
     : user.role === 'LOCATION_MANAGER'
       ? { location: user.location, status: { $in: ['PENDING', 'HELD'] } }
-      : { salesRepId: user._id, status: { $in: ['PENDING', 'HELD'] } };
+      : { salesRepId: user._id };
   if (user.role === 'SUPER_ADMIN') {
     const { startDate, endDate } = req.query;
     if (startDate || endDate) {
@@ -381,7 +381,7 @@ app.get('/api/orders', async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999+05:30`);
     }
   }
-  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'SUPER_ADMIN' ? 5000 : 200).lean();
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).limit(user.role === 'LOCATION_MANAGER' ? 200 : 5000).lean();
   const missingDetailIds = [...new Set(orders.flatMap((order) => order.items.filter((item) => !item.color || !item.size || !item.style).map((item) => String(item.productId))))];
   if (missingDetailIds.length) {
     const products = await Product.find({ _id: { $in: missingDetailIds } }).select('_id style color size').lean();
@@ -950,39 +950,103 @@ app.post('/api/orders/:id/hold', async (req, res) => {
   if (user.role !== 'LOCATION_MANAGER') return res.status(403).json({ message: 'Only Location Managers can hold orders.' });
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid order.' });
 
-  const productIds = [...new Set((Array.isArray(req.body.productIds) ? req.body.productIds : [req.body.productId]).map(String).filter(Boolean))];
+  const requestedItems = Array.isArray(req.body.items)
+    ? req.body.items
+    : (Array.isArray(req.body.productIds) ? req.body.productIds : [req.body.productId]).map((productId) => ({ productId, quantity: null }));
   const reason = String(req.body.reason || '').trim();
-  if (!productIds.length || productIds.some((productId) => !mongoose.isValidObjectId(productId))) return res.status(400).json({ message: 'Select at least one affected item.' });
+  if (!requestedItems.length || requestedItems.some((item) => !mongoose.isValidObjectId(item.productId))) return res.status(400).json({ message: 'Select at least one affected item.' });
   if (reason.length < 3 || reason.length > 500) return res.status(400).json({ message: 'Enter a hold reason between 3 and 500 characters.' });
 
+  const dbSession = await mongoose.startSession();
   try {
-    const pendingOrder = await Order.findOne({ _id: req.params.id, location: user.location, status: 'PENDING' });
-    if (!pendingOrder) return res.status(409).json({ message: 'This pending order is no longer available.' });
-    const affectedItems = productIds.map((productId) => pendingOrder.items.find((item) => String(item.productId) === productId));
-    if (affectedItems.some((item) => !item)) return res.status(400).json({ message: 'One of the selected items is not part of this order.' });
-    const products = await Product.find({ _id: { $in: pendingOrder.items.map((item) => item.productId) } }).select('_id style color size').lean();
-    const productById = new Map(products.map((product) => [String(product._id), product]));
-    const heldItems = affectedItems.map((item) => {
-      const product = productById.get(String(item.productId)) || {};
-      return { productId: item.productId, productCode: item.productCode, productName: item.productName, style: item.style || product.style, color: item.color || product.color, size: item.size || product.size, quantity: item.quantity };
-    });
+    let order;
+    let heldOrder;
+    await dbSession.withTransaction(async () => {
+      const pendingOrder = await Order.findOne({ _id: req.params.id, location: user.location, status: 'PENDING' }).session(dbSession);
+      if (!pendingOrder) throw new Error('This pending order is no longer available.');
+      const quantitiesToHold = new Map();
+      for (const requested of requestedItems) {
+        const productId = String(requested.productId);
+        const item = pendingOrder.items.find((orderItem) => String(orderItem.productId) === productId);
+        if (!item) throw new Error('One of the selected items is not part of this order.');
+        const quantity = requested.quantity == null ? Number(item.quantity) : Number(requested.quantity);
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > item.quantity) {
+          throw new Error(`Enter a hold quantity from 1 to ${item.quantity} for ${item.productName}.`);
+        }
+        quantitiesToHold.set(productId, (quantitiesToHold.get(productId) || 0) + quantity);
+        if (quantitiesToHold.get(productId) > item.quantity) throw new Error(`Hold quantity exceeds the ordered quantity for ${item.productName}.`);
+      }
+      const products = await Product.find({ _id: { $in: pendingOrder.items.map((item) => item.productId) } }).select('_id style color size').session(dbSession).lean();
+      const productById = new Map(products.map((product) => [String(product._id), product]));
+      const heldItems = pendingOrder.items.flatMap((item) => {
+        const quantity = quantitiesToHold.get(String(item.productId)) || 0;
+        if (!quantity) return [];
+        const product = productById.get(String(item.productId)) || {};
+        return [{ ...item.toObject(), quantity, total: Number(item.unitPrice) * quantity, style: item.style || product.style, color: item.color || product.color, size: item.size || product.size }];
+      });
+      const holdDetails = {
+        items: heldItems.map((item) => ({ productId: item.productId, productCode: item.productCode, productName: item.productName, style: item.style, color: item.color, size: item.size, quantity: item.quantity })),
+        reason,
+        heldAt: new Date(),
+        heldBy: user.name
+      };
+      const remainingItems = pendingOrder.items.flatMap((item) => {
+        const quantity = Number(item.quantity) - (quantitiesToHold.get(String(item.productId)) || 0);
+        return quantity > 0 ? [{ ...item.toObject(), quantity, total: Number(item.unitPrice) * quantity }] : [];
+      });
 
-    const order = await Order.findOneAndUpdate(
-      { _id: pendingOrder._id, status: 'PENDING' },
-      { $set: { status: 'HELD', hold: { items: heldItems, reason, heldAt: new Date(), heldBy: user.name } } },
-      { new: true, runValidators: true }
-    );
-    if (!order) return res.status(409).json({ message: 'This pending order is no longer available.' });
+      if (!remainingItems.length) {
+        pendingOrder.status = 'HELD';
+        pendingOrder.hold = holdDetails;
+        order = await pendingOrder.save({ session: dbSession });
+      } else {
+        pendingOrder.items = remainingItems;
+        pendingOrder.totalQuantity = remainingItems.reduce((sum, item) => sum + Number(item.quantity), 0);
+        pendingOrder.totalAmount = remainingItems.reduce((sum, item) => sum + Number(item.total), 0);
+        order = await pendingOrder.save({ session: dbSession });
+
+        const counter = await Counter.findOneAndUpdate(
+          { key: 'SALES_ORDER' },
+          { $inc: { value: 1 }, $setOnInsert: { prefix: 'SO-', padding: 6 } },
+          { new: true, upsert: true, setDefaultsOnInsert: true, session: dbSession }
+        );
+        const heldOrderData = pendingOrder.toObject();
+        delete heldOrderData._id;
+        delete heldOrderData.createdAt;
+        delete heldOrderData.updatedAt;
+        delete heldOrderData.__v;
+        [heldOrder] = await Order.create([{
+          ...heldOrderData,
+          orderNumber: formatSalesOrderNumber(counter.value, counter),
+          splitFromOrderNumber: pendingOrder.orderNumber,
+          items: heldItems,
+          totalQuantity: heldItems.reduce((sum, item) => sum + Number(item.quantity), 0),
+          totalAmount: heldItems.reduce((sum, item) => sum + Number(item.total), 0),
+          status: 'HELD',
+          hold: holdDetails
+        }], { session: dbSession });
+      }
+    });
     publishOrderUpdate();
     try {
       const recipients = await User.find({ _id: order.salesRepId }).select('_id email contactNumber');
-      await notifyOrderRecipients(recipients, `Order on hold ${order.orderNumber}`, `${user.name} placed ${order.orderNumber} on hold for ${heldItems.map((item) => item.productName).join(', ')}: ${reason}`);
+      const heldRecord = heldOrder || order;
+      const heldLabel = heldOrder ? `${heldOrder.orderNumber} (split from ${order.orderNumber})` : order.orderNumber;
+      await notifyOrderRecipients(recipients, `Order on hold ${heldLabel}`, `${user.name} placed ${heldLabel} on hold for ${heldRecord.hold.items.map((item) => `${item.quantity} × ${item.productName}`).join(', ')}: ${reason}`);
     } catch (notificationError) { console.error('Order-hold notification failed:', notificationError.message); }
     const responseOrder = order.toObject();
-    responseOrder.items = responseOrder.items.map((item) => ({ ...item, ...(productById.get(String(item.productId)) || {}) }));
-    res.json(responseOrder);
+    const response = { order: responseOrder, heldOrder: heldOrder?.toObject() || null };
+    const productIds = [...new Set([...response.order.items, ...(response.heldOrder?.items || [])].map((item) => String(item.productId)))];
+    const productDetails = await Product.find({ _id: { $in: productIds } }).select('_id style color size').lean();
+    const productById = new Map(productDetails.map((product) => [String(product._id), product]));
+    response.order.items = response.order.items.map((item) => ({ ...item, ...(productById.get(String(item.productId)) || {}) }));
+    if (response.heldOrder) response.heldOrder.items = response.heldOrder.items.map((item) => ({ ...item, ...(productById.get(String(item.productId)) || {}) }));
+    res.json(response);
   } catch (error) {
-    res.status(400).json({ message: error.message || 'Unable to place the order on hold.' });
+    const conflict = error.message === 'This pending order is no longer available.';
+    res.status(conflict ? 409 : 400).json({ message: error.message || 'Unable to place the order on hold.' });
+  } finally {
+    await dbSession.endSession();
   }
 });
 
