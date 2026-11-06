@@ -299,24 +299,46 @@ app.use('/api', requireSession);
 const currentUser = async (req) => User.findById(req.session.userId);
 const hasSidebarAccess = (user, permission) => user?.role === 'SUPER_ADMIN' || user?.sidebarPermissions?.includes(permission);
 
-// An order belongs to the plant that supplies its products, not the sales
-// representative's profile location. Normalize old records from their items.
+// Repair legacy order locations before filtering the Pending Orders queue.
 let legacyOrderMigration;
 const migrateLegacyOrders = async () => {
   if (legacyOrderMigration) return legacyOrderMigration;
   legacyOrderMigration = (async () => {
-    // Only migrate records created before orders stored their supplying
-    // location.  Re-running this after a server restart must never rewrite
-    // current orders (in particular, completed shipments).
+    // Backfill records created before orders stored a location.
     const orders = await Order.find({ location: { $exists: false } }).select('_id items.productId');
-    if (!orders.length) return;
     const productIds = [...new Set(orders.flatMap((order) => order.items.map((item) => String(item.productId))))];
-    const products = await Product.find({ _id: { $in: productIds } }).select('_id plant');
+    const products = productIds.length
+      ? await Product.find({ _id: { $in: productIds } }).select('_id plant')
+      : [];
     const plantByProduct = new Map(products.map((product) => [String(product._id), product.plant]));
     await Promise.all(orders.map((order) => {
       const plants = [...new Set(order.items.map((item) => plantByProduct.get(String(item.productId))).filter(Boolean))];
       return plants.length === 1
         ? Order.updateOne({ _id: order._id }, { $set: { location: plants[0] } })
+        : null;
+    }));
+
+    // Older sales rep orders used the product catalog plant as their queue
+    // location. Restore the rep's assigned operating location when it maps to
+    // the same inventory catalog. Never touch completed or cancelled orders.
+    const pendingOrders = await Order.find({
+      status: { $in: ['PENDING', 'HELD'] },
+      salesRepId: { $exists: true }
+    }).select('_id location salesRepId items.productId');
+    const repIds = [...new Set(pendingOrders.map((order) => String(order.salesRepId)))];
+    const reps = await User.find({ _id: { $in: repIds }, role: 'SALES_REP' }).select('_id location');
+    const locationByRep = new Map(reps.map((rep) => [String(rep._id), rep.location]));
+    const pendingProductIds = [...new Set(pendingOrders.flatMap((order) => order.items.map((item) => String(item.productId))))];
+    const pendingProducts = pendingProductIds.length
+      ? await Product.find({ _id: { $in: pendingProductIds } }).select('_id plant')
+      : [];
+    const pendingPlantByProduct = new Map(pendingProducts.map((product) => [String(product._id), product.plant]));
+    await Promise.all(pendingOrders.map((order) => {
+      const repLocation = locationByRep.get(String(order.salesRepId));
+      if (!repLocation || repLocation === order.location) return null;
+      const plants = [...new Set(order.items.map((item) => pendingPlantByProduct.get(String(item.productId))).filter(Boolean))];
+      return plants.length === 1 && plants[0] === productMasterLocation(repLocation)
+        ? Order.updateOne({ _id: order._id, status: { $in: ['PENDING', 'HELD'] } }, { $set: { location: repLocation } })
         : null;
     }));
   })().catch((error) => {
