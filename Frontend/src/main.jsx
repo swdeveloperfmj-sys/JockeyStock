@@ -1693,11 +1693,11 @@ function SalesHistoryPage({ refreshKey, onOrderChanged, onEditOrder, canDownload
       <div className="sales-history-filters">
         <label>
           From
-          <span className="sales-date-input"><input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
+          <span className="sales-date-input"><input type="date" value={startDate} max={endDate || undefined} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Native picker may already be open. */ } }} onChange={(event) => setStartDate(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
         </label>
         <label>
           To
-          <span className="sales-date-input"><input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
+          <span className="sales-date-input"><input type="date" value={endDate} min={startDate || undefined} onClick={(event) => { try { event.currentTarget.showPicker?.(); } catch { /* Native picker may already be open. */ } }} onChange={(event) => setEndDate(event.target.value)} /><FiCalendar aria-hidden="true" /></span>
         </label>
         {(startDate || endDate) && (
           <button
@@ -2673,6 +2673,7 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     return () => window.clearInterval(timer);
   }, []);
   const unreadNotifications = notifications.filter((notification) => !notification.readAt);
+  const pendingOrderAlert = locationManager && unreadNotifications.some((notification) => notification.type === "ORDER" && notification.title?.toLowerCase().startsWith("new pending order"));
   const markNotificationRead = async (notification) => {
     if (notification.readAt) return;
     setNotifications((items) => items.map((item) => item._id === notification._id ? { ...item, readAt: new Date().toISOString() } : item));
@@ -2682,7 +2683,10 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
     markNotificationRead(notification);
     setNotificationsOpen(false);
     setToastNotification(null);
-    if (notification.type === "ORDER" && locationManager) setV("Pending Orders");
+    if (notification.type === "ORDER" && locationManager) {
+      unreadNotifications.filter((item) => item.type === "ORDER" && item.title?.toLowerCase().startsWith("new pending order")).forEach(markNotificationRead);
+      setV("Pending Orders");
+    }
     else if (notification.type === "ORDER" && !admin) setV("Sales");
     else if (notification.type === "STOCK" && admin) setV("Stock Updates");
     else if (notification.type === "STOCK" && locationManager) setV("Stock Update");
@@ -3415,12 +3419,14 @@ function Dashboard({ user, onLogout, theme, setTheme }) {
                 setReportOpen(false);
                 setInventorySalesOpen(false);
                 setTransactionInquiryOpen(false);
+                if (l === "Pending Orders") unreadNotifications.filter((notification) => notification.type === "ORDER" && notification.title?.toLowerCase().startsWith("new pending order")).forEach(markNotificationRead);
                 setV(l);
                 setM(false);
               }}
             >
               <I />
               <span>{l}</span>
+              {l === "Pending Orders" && pendingOrderAlert && <i className="pending-order-sidebar-alert" aria-label="New pending order" title="New pending order" />}
             </a>
           ))}
           {(admin || (permissionConfigured && canSeeSidebar("Report") && (canSeeSidebar("Sales Register") || canSeeSidebar("GRN Report") || canSeeSidebar("Stock Balance Report") || canSeeSidebar("Stock Adjustment Report") || canSeeSidebar("Supplier Wise Stock Movement"))) ||
