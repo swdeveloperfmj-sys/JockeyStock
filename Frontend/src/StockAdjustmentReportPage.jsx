@@ -135,7 +135,7 @@ export default function StockAdjustmentReportPage() {
     <section className="stock-adjustment-page">
       <div className="page-title">
         <div>
-          <p className="eyebrow">REPORT · TRANSACTION INQUIRY</p>
+          <p className="eyebrow">REPORT - TRANSACTION INQUIRY</p>
           <h2>Stock Adjustment</h2>
           <p className="page-description">
             Review stock adjustment transactions and open their documents.
