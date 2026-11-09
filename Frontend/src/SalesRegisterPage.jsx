@@ -533,7 +533,7 @@ function PivotDesigner({ rows, filters, filterLabels, dates, onClose, exportWork
 
         <footer className="pivot-footer">
           <div className="pivot-footer-context">
-            <span>Date From: {dates.from || "All"} &nbsp; To: {dates.to || "All"} &nbsp; - &nbsp; {filters.length} additional filter{filters.length === 1 ? "" : "s"}</span>
+            <span>Date From: {dates.from || "All"} &nbsp; To: {dates.to || "All"} &nbsp; · &nbsp; {filters.length} additional filter{filters.length === 1 ? "" : "s"}</span>
             {layoutStatus && <small>{layoutStatus}</small>}
           </div>
           <div className="pivot-layout-save-controls">

@@ -226,7 +226,7 @@ export default function StockAdjustmentPage() {
           </label>
           {selectedProduct && (
             <small>
-              Selected: {selectedProduct.productName || selectedProduct.name} -
+              Selected: {selectedProduct.productName || selectedProduct.name} ·
               Available stock:{" "}
               {Number(selectedProduct.openingStock || 0).toLocaleString()}
             </small>

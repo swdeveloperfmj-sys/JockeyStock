@@ -313,7 +313,7 @@ export default function GrnPageNew({ user }) {
           <div className="grn-preview-heading">
             <h2>Preview</h2>
             <span>
-              {items.length} items - {totalQuantity} pieces
+              {items.length} items · {totalQuantity} pieces
             </span>
           </div>
           <div className="product-table-wrap">
