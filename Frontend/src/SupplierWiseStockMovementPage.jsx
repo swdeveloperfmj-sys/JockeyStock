@@ -149,7 +149,7 @@ export default function SupplierWiseStockMovementPage({ user }) {
     <section className="bin-card-page">
       <div className="page-title">
         <div>
-          <p className="eyebrow">REPORT - INVENTORY &amp; SALES - STOCK REPORTS</p>
+          <p className="eyebrow">REPORT · INVENTORY &amp; SALES · STOCK REPORTS</p>
           <h1>Supplier Wise Stock Movement</h1>
           <p className="page-description">
             Review stock transactions for products by supplier.

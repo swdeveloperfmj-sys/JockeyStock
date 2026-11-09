@@ -234,7 +234,7 @@ export default function StockMovementDetailsPage({ user }) {
                       {filters.to || "All"}
                     </small>
                     <small>
-                      Product: {report.product.productCode} -{" "}
+                      Product: {report.product.productCode} ·{" "}
                       {report.product.productName}
                     </small>
                   </div>
