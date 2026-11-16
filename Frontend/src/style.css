@@ -5261,7 +5261,7 @@ label {
   outline-offset: 3px;
 }
 .order-details-modal {
-  width: min(820px, calc(100vw - 32px));
+  width: min(1000px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   box-sizing: border-box;
   padding: 26px;
