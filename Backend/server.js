@@ -22,6 +22,7 @@ import SalesReturn from './models/SalesReturn.js';
 import Customer from './models/Customer.js';
 import SalesPivotLayout from './models/SalesPivotLayout.js';
 import StockBalancePivotLayout from './models/StockBalancePivotLayout.js';
+import { resolveInvoiceDiscount } from './invoiceDiscount.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -777,6 +778,25 @@ app.get('/api/shipments', async (req, res) => {
   res.json(shipments);
 });
 
+app.get('/api/shipments/:id/invoice-data', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
+  if (!isSalesDepartment(user) || user.location !== INVENTORY_LOCATION) return res.status(403).json({ message: 'Only Head Office Sales Department users can generate invoices.' });
+  if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid shipment.' });
+  try {
+    const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' }).lean();
+    if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
+    order.customerDiscount = await resolveInvoiceDiscount(order, Customer);
+    if (order.customerId) {
+      const customer = await Customer.findById(order.customerId).select('tinNo vatNo').lean();
+      if (customer) order.customerTinNo = customer.tinNo || customer.vatNo || '';
+    }
+    res.json(order);
+  } catch (error) {
+    res.status(400).json({ message: error.message || 'Unable to prepare the invoice.' });
+  }
+});
+
 app.post('/api/shipments/:id/invoice', receiveInvoice, async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ message: 'Your session has expired. Please sign in again.' });
@@ -788,6 +808,14 @@ app.post('/api/shipments/:id/invoice', receiveInvoice, async (req, res) => {
     const order = await Order.findOne({ _id: req.params.id, status: 'COMPLETED' });
     if (!order) return res.status(404).json({ message: 'This shipment is no longer available.' });
     const previousInvoicePublicId = order.invoice?.publicId;
+    if (req.body.generatedDiscount !== undefined) {
+      const discount = await resolveInvoiceDiscount(order, Customer);
+      if (req.body.generatedDiscount === '' || Number(req.body.generatedDiscount) !== discount) {
+        return res.status(409).json({ message: 'The customer discount has changed. Close the preview and generate the invoice again.' });
+      }
+      // Keep the sales register consistent with the confirmed PDF.
+      order.customerDiscount = discount;
+    }
     const uploaded = await uploadImageBuffer(req.file.buffer, { resource_type: 'raw', folder: 'jockey-stock/invoices', public_id: `invoice-${order.orderNumber}-${Date.now()}` });
     order.invoice = { url: uploaded.secure_url, publicId: uploaded.public_id, fileName: req.file.originalname, uploadedAt: new Date(), uploadedBy: user.name };
     await order.save();

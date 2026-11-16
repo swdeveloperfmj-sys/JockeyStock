@@ -2312,8 +2312,11 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) 
     setGeneratingId(order._id);
     setError("");
     try {
-      const generated = await createShipmentInvoicePdf(order, userName);
-      setGeneratedInvoicePreview({ order, generated, previewUrl: URL.createObjectURL(generated.blob) });
+      const response = await fetch(`${API_URL}/shipments/${order._id}/invoice-data`);
+      const invoiceOrder = await response.json();
+      if (!response.ok) throw new Error(invoiceOrder.message);
+      const generated = await createShipmentInvoicePdf(invoiceOrder, userName);
+      setGeneratedInvoicePreview({ order: invoiceOrder, generated, previewUrl: URL.createObjectURL(generated.blob) });
     } catch (requestError) {
       setError(requestError.message || "Unable to prepare the invoice preview.");
     } finally {
@@ -2334,6 +2337,7 @@ function ShipmentsPage({ refreshKey, canUploadInvoice = false, userName = "" }) 
     try {
       const formData = new FormData();
       formData.append("invoice", new File([generated.blob], generated.fileName, { type: "application/pdf" }));
+      formData.append("generatedDiscount", String(order.customerDiscount));
       const response = await fetch(`${API_URL}/shipments/${order._id}/invoice`, { method: "POST", body: formData });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
